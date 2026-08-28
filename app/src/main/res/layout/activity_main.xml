@@ -1,0 +1,143 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Wrapped in a ScrollView: the Karoo's screen is much smaller than a phone's,
+     and this layout has grown past what fits on it without scrolling — buttons
+     were being silently clipped off-screen rather than actually missing. -->
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:orientation="vertical"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:padding="24dp">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Cameras"
+            android:textStyle="bold"
+            android:textSize="18sp"
+            android:layout_marginBottom="12dp" />
+
+        <TextView
+            android:id="@+id/noCamerasText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="No cameras saved yet — scan or add one below."
+            android:textSize="12sp"
+            android:layout_marginBottom="12dp" />
+
+        <LinearLayout
+            android:id="@+id/cameraListContainer"
+            android:orientation="vertical"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="16dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Add a Camera"
+            android:textStyle="bold"
+            android:textSize="18sp"
+            android:layout_marginTop="16dp"
+            android:layout_marginBottom="12dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Shows every nearby Bluetooth device, not just Insta360 cameras — tap Add on whichever one is yours."
+            android:textSize="12sp"
+            android:layout_marginBottom="8dp" />
+
+        <Button
+            android:id="@+id/scanForCamerasButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Scan for Cameras"
+            android:layout_marginBottom="12dp" />
+
+        <LinearLayout
+            android:id="@+id/discoveredListContainer"
+            android:orientation="vertical"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="16dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Or add by address (if scanning doesn't find it)"
+            android:textSize="12sp"
+            android:layout_marginBottom="8dp" />
+
+        <EditText
+            android:id="@+id/manualNameInput"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Camera name (e.g. Chest, Handlebar)"
+            android:layout_marginBottom="8dp" />
+
+        <EditText
+            android:id="@+id/manualAddressInput"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Camera BLE address (AA:BB:CC:DD:EE:FF)"
+            android:inputType="textCapCharacters"
+            android:layout_marginBottom="12dp" />
+
+        <Button
+            android:id="@+id/manualAddButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Add by Address" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Notifications"
+            android:textStyle="bold"
+            android:textSize="18sp"
+            android:layout_marginTop="24dp"
+            android:layout_marginBottom="4dp" />
+
+        <CheckBox
+            android:id="@+id/notifyOnRecordingChangeCheckbox"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Notify when a camera starts or stops recording"
+            android:layout_marginBottom="4dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textSize="12sp"
+            android:text="Posts a notification in the status bar/drawer for every start and stop, whether triggered automatically or from a camera's Start/Stop test buttons — applies to all saved cameras. On Android 13+ this will prompt for notification permission the first time you turn it on."
+            android:layout_marginBottom="16dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Control Center"
+            android:textStyle="bold"
+            android:textSize="18sp"
+            android:layout_marginBottom="4dp" />
+
+        <CheckBox
+            android:id="@+id/controlCenterControlCheckbox"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Show a Start/Stop control in the Karoo's Control Center"
+            android:layout_marginBottom="4dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textSize="12sp"
+            android:text="Adds a native Karoo Control Center notification with a Start/Stop button that starts every connected camera or stops every recording one — a manual override alongside the automatic triggers. No notification permission needed (this uses the Karoo's own system, not Android's). There's also a tappable &quot;Insta360 Recording Control&quot; data field you can drop on any ride page for the same on-screen toggle, and a &quot;Toggle Camera Recording&quot; action you can assign to a controller button in the Karoo's own button settings — all three act on every saved camera together, since none of them can offer a per-camera choice from a single tap or press. A recording started this way (or from a camera's own Configure screen, or its own physical shutter button) is never auto-stopped by the automatic triggers — only a recording the triggers themselves started gets auto-stopped. Starting a camera this way also briefly pauses its automatic triggers so they can't immediately restart what you just told them not to; that pause clears the moment you open and close that camera's Configure screen (even just to look and back out), though it has no bearing on the stop protection above, which lasts as long as the recording does regardless."
+            android:layout_marginBottom="12dp" />
+
+    </LinearLayout>
+</ScrollView>

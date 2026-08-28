@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <uses-feature android:name="android.hardware.bluetooth_le" android:required="true" />
+
+    <!-- Android 12+ (API 31+) runtime BLE permissions -->
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN"
+        android:usesPermissionFlags="neverForLocation" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+
+    <!-- Pre-Android 12 fallback permissions -->
+    <uses-permission android:name="android.permission.BLUETOOTH"
+        android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN"
+        android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"
+        android:maxSdkVersion="30" />
+
+    <!-- Android 13+ (API 33+) runtime permission for the optional "notify when
+         recording starts/stops" setting. Harmless to declare on older versions too —
+         it's simply not enforced there. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <application
+        android:allowBackup="true"
+        android:label="@string/app_name"
+        android:theme="@style/Theme.AppCompat.DayNight">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <activity
+            android:name=".camera.CameraConfigActivity"
+            android:exported="false"
+            android:label="Camera Settings" />
+
+        <!-- Invisible trampoline for the Start/Stop button on the Karoo Control Center
+             notification (see Insta360Extension.updateControlCenterNotification and
+             ControlCenterActionActivity's own doc comment). exported=true + the two
+             actions below are required so karoo-ext's SystemNotification.actionIntent
+             (an implicit intent built from just an action string) can resolve to this
+             activity; category DEFAULT is required for any implicit intent started via
+             startActivity() to match at all. Themed fully transparent/no-history so it
+             never actually shows a window — see styles.xml. -->
+        <activity
+            android:name=".ControlCenterActionActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:theme="@style/Theme.Transparent.NoDisplay"
+            tools:ignore="ExportedActivity">
+            <intent-filter>
+                <action android:name="com.example.karooinsta360.action.START_ALL" />
+                <action android:name="com.example.karooinsta360.action.STOP_ALL" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+
+        <!-- Handles a tap on the "Recording Control" ride-page data field (see
+             RecordingControlDataType.kt) — its RemoteViews click targets this via
+             PendingIntent.getBroadcast, which is what requires exported=true here (the
+             click actually originates from whatever process renders ride pages, not this
+             app). No intent-filter needed since RecordingControlDataType always builds an
+             explicit Intent(context, RecordingToggleReceiver::class.java). -->
+        <receiver
+            android:name=".RecordingToggleReceiver"
+            android:exported="true" />
+
+        <!-- Karoo extension: lets the Karoo system bind this service, which
+             auto-connects to every saved camera and drives its independent
+             heart-rate/power/speed/radar triggers (see Insta360Extension). -->
+        <service
+            android:name=".extension.Insta360Extension"
+            android:exported="true"
+            tools:ignore="ExportedService">
+            <intent-filter>
+                <action android:name="io.hammerhead.karooext.KAROO_EXTENSION" />
+            </intent-filter>
+            <meta-data
+                android:name="io.hammerhead.karooext.EXTENSION_INFO"
+                android:resource="@xml/extension_info" />
+        </service>
+
+    </application>
+
+</manifest>

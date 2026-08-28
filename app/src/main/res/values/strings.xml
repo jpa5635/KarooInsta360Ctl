@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">Karoo Insta360</string>
+    <string name="extension_name">Insta360 Camera</string>
+    <string name="action_toggle_recording">Toggle Camera Recording</string>
+</resources>

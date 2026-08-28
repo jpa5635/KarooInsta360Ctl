@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- RemoteViews for the "Recording Control" ride-page data field (see
+     RecordingControlDataType.kt). Whole-view clickable — RemoteViews only supports a
+     limited set of widgets/attributes, so this stays deliberately simple: one root
+     container the click lands on, one TextView showing current state. -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/recordingControlRoot"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#40000000">
+
+    <TextView
+        android:id="@+id/recordingControlText"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:gravity="center"
+        android:textColor="#FFFFFF"
+        android:textStyle="bold"
+        android:textSize="14sp"
+        android:text="Tap to\nStart" />
+
+</FrameLayout>
