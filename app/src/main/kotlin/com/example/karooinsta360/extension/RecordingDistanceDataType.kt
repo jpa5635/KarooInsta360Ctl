@@ -100,12 +100,22 @@ class RecordingDistanceDataType(
     override fun startView(context: Context, config: ViewConfig, emitter: ViewEmitter) {
         Log.i(TAG, "startView grid=${config.gridSize} alignment=${config.alignment} preview=${config.preview}")
 
-        // We draw the whole cell now, so the stock header would duplicate what our own
-        // value already conveys and steal vertical space from it.
+        // Stock header stays off and we draw our own label instead. Not ideology: with
+        // showHeader = true this field previously rendered nothing at all, and until
+        // that's understood, a label we control is a label that definitely appears. The
+        // trade is losing the field icon the stock header would have shown.
         emitter.onNext(UpdateGraphicConfig(showHeader = false))
 
-        val fullWidth = RecordingControlDataType.isFullWidth(config)
-        val tall = config.gridSize.second > RecordingControlDataType.QUARTER_HEIGHT_ROWS
+        // (2026-09-07) ViewConfig.textSize is documented as "font size used in standard
+        // numeric view of this grid size", i.e. exactly the size Karoo's own fields render
+        // at in this cell. The first version ignored it in favour of hardcoded sizes per
+        // cell shape, which is why this field didn't match its neighbours. Use the value
+        // the system hands us.
+        val valueTextSizeSp = config.textSize.toFloat()
+
+        // Header scaled off the same number rather than fixed, so it stays proportionate
+        // across cell sizes. Floored so it doesn't vanish in a small cell.
+        val labelTextSizeSp = (config.textSize * LABEL_SIZE_RATIO).coerceAtLeast(MIN_LABEL_SP)
 
         // Latest values, written by their own collectors and read by the render loop.
         val meters = AtomicReference<Double?>(null)
@@ -146,16 +156,16 @@ class RecordingDistanceDataType(
                 val textColor = if (dark) R.color.field_dark_text else R.color.field_light_text
                 val dotDrawable = if (dark) R.drawable.ic_rec_dot_on_dark else R.drawable.ic_rec_dot_on_light
 
-                val textSizeSp = when {
-                    fullWidth && tall -> 44f
-                    fullWidth -> 34f
-                    tall -> 32f
-                    else -> 26f
-                }
-
                 val views = RemoteViews(context.packageName, R.layout.view_recording_distance).apply {
+                    // Just the field name, matching how Karoo labels its own fields. The
+                    // unit is deliberately not shown: the rider set it in their profile
+                    // and it doesn't change mid-ride, so repeating it in every frame is
+                    // noise on a cell this small.
+                    setTextViewText(R.id.distanceLabel, "DISTANCE")
+                    setTextViewTextSize(R.id.distanceLabel, TypedValue.COMPLEX_UNIT_SP, labelTextSizeSp)
+                    setTextColor(R.id.distanceLabel, ContextCompat.getColor(context, textColor))
                     setTextViewText(R.id.distanceValue, formatDistance(meters.get(), imperial.get()))
-                    setTextViewTextSize(R.id.distanceValue, TypedValue.COMPLEX_UNIT_SP, textSizeSp)
+                    setTextViewTextSize(R.id.distanceValue, TypedValue.COMPLEX_UNIT_SP, valueTextSizeSp)
                     setTextColor(R.id.distanceValue, ContextCompat.getColor(context, textColor))
                     setImageViewResource(dotId, dotDrawable)
                     // INVISIBLE rather than GONE on the active side so the dot blinks in
@@ -196,5 +206,7 @@ class RecordingDistanceDataType(
         const val TYPE_ID = "recording_distance"
         const val BLINK_PERIOD_MS = 1_000L
         private const val METERS_PER_MILE = 1609.344
+        private const val LABEL_SIZE_RATIO = 0.30f
+        private const val MIN_LABEL_SP = 10f
     }
 }

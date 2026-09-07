@@ -1,31 +1,48 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- RemoteViews for the "Distance" data field (see RecordingDistanceDataType.kt).
 
-     (2026-09-07) This now draws the distance value itself, in distanceValue. The first
-     version relied on UpdateGraphicConfig(formatDataTypeId = TYPE_DISTANCE_ID) to have
-     Karoo render the number underneath our overlay, which is what that setting is
-     documented to do — but on device the cell came up with no number at all, so the field
-     draws its own. See the class doc for the reasoning.
+     Label and value are stacked in a LinearLayout rather than layered in the FrameLayout,
+     so on a quarter-height cell the label takes its space off the top and the value gets
+     what's left, instead of overlapping the digits.
 
-     Two pre-positioned dots rather than one repositioned dot: RemoteViews can't change a
-     child's layout_gravity, and setViewLayoutWidth/Height is API 31+ (minSdk here is 26),
-     so the code toggles visibility to pick a side instead. -->
+     The dots sit outside that stack, pinned to the cell corners. Two pre-positioned dots
+     rather than one repositioned dot: RemoteViews can't change a child's layout_gravity,
+     and setViewLayoutWidth/Height is API 31+ (minSdk here is 26), so the code toggles
+     visibility to pick a side. -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/recordingDistanceRoot"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:padding="4dp">
 
-    <TextView
-        android:id="@+id/distanceValue"
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:gravity="center"
-        android:includeFontPadding="false"
-        android:maxLines="1"
-        android:textStyle="bold"
-        android:textSize="28sp"
-        android:text="--" />
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/distanceLabel"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_horizontal"
+            android:includeFontPadding="false"
+            android:maxLines="1"
+            android:textSize="11sp"
+            android:text="DISTANCE" />
+
+        <TextView
+            android:id="@+id/distanceValue"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:gravity="center"
+            android:includeFontPadding="false"
+            android:maxLines="1"
+            android:textStyle="bold"
+            android:textSize="28sp"
+            android:text="--" />
+
+    </LinearLayout>
 
     <ImageView
         android:id="@+id/recordingDistanceDotStart"

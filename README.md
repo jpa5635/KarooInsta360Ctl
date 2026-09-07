@@ -1239,6 +1239,20 @@ alignment setting, since RemoteViews can't set gravity at runtime without riskin
 `ActionException`. `startStream` is kept regardless, so the type still works as a plain
 numeric field and reverting to the overlay approach stays a small change.
 
+**Changed (2026-09-07, 0.1.15) — Distance field label and matching font size.** The field
+now draws a "DISTANCE" label above the value, and sizes the value
+from `ViewConfig.textSize` rather than a hardcoded size per cell shape. That property is
+documented as "font size used in standard numeric view of this grid size", i.e. precisely
+what Karoo's own fields render at in that cell — ignoring it was why this field didn't
+match its neighbours.
+
+Label and value are stacked in a
+LinearLayout rather than layered, so on a quarter-height cell the label takes its space off
+the top instead of overlapping the digits. The stock header stays disabled: with
+`showHeader = true` this field previously rendered nothing at all, and until that is
+understood, a label we draw is a label that definitely appears. The cost is the field icon
+the stock header would have shown.
+
 ## Attribution
 
 BLE protocol reverse-engineering courtesy of
