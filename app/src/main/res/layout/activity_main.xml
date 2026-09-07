@@ -39,6 +39,52 @@
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:text="Configuration Profiles"
+            android:textStyle="bold"
+            android:textSize="18sp"
+            android:layout_marginBottom="4dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textSize="12sp"
+            android:text="All heart rate/power/speed/radar trigger settings live on a profile, not on a camera. Each profile also chooses which of your saved cameras it considers at all — Configure a profile to pick its cameras and set each one's triggers. Applying a profile makes it the one driving automatic recording, so switching between e.g. a Road and a Gravel race profile reconfigures the whole fleet's behavior in one tap."
+            android:layout_marginBottom="8dp" />
+
+        <TextView
+            android:id="@+id/activeProfileText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textSize="12sp"
+            android:textStyle="bold"
+            android:text="Active profile: none"
+            android:layout_marginBottom="8dp" />
+
+        <TextView
+            android:id="@+id/noProfilesText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="No profiles saved yet — add a camera above, then create one below."
+            android:textSize="12sp"
+            android:layout_marginBottom="12dp" />
+
+        <LinearLayout
+            android:id="@+id/profileListContainer"
+            android:orientation="vertical"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="12dp" />
+
+        <Button
+            android:id="@+id/saveNewProfileButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Create New Profile"
+            android:layout_marginBottom="16dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
             android:text="Add a Camera"
             android:textStyle="bold"
             android:textSize="18sp"
@@ -120,23 +166,56 @@
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Control Center"
+            android:text="Data Source Loss"
             android:textStyle="bold"
             android:textSize="18sp"
-            android:layout_marginBottom="4dp" />
-
-        <CheckBox
-            android:id="@+id/controlCenterControlCheckbox"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="Show a Start/Stop control in the Karoo's Control Center"
+            android:layout_marginTop="24dp"
             android:layout_marginBottom="4dp" />
 
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:textSize="12sp"
-            android:text="Adds a native Karoo Control Center notification with a Start/Stop button that starts every connected camera or stops every recording one — a manual override alongside the automatic triggers. No notification permission needed (this uses the Karoo's own system, not Android's). There's also a tappable &quot;Insta360 Recording Control&quot; data field you can drop on any ride page for the same on-screen toggle, and a &quot;Toggle Camera Recording&quot; action you can assign to a controller button in the Karoo's own button settings — all three act on every saved camera together, since none of them can offer a per-camera choice from a single tap or press. A recording started this way (or from a camera's own Configure screen, or its own physical shutter button) is never auto-stopped by the automatic triggers — only a recording the triggers themselves started gets auto-stopped. Starting a camera this way also briefly pauses its automatic triggers so they can't immediately restart what you just told them not to; that pause clears the moment you open and close that camera's Configure screen (even just to look and back out), though it has no bearing on the stop protection above, which lasts as long as the recording does regardless."
+            android:text="If a camera is recording because of an automatic trigger (heart rate, power, speed, or radar) and that trigger's own data source stops updating entirely — a disconnected strap, a dead sensor, lost radar connectivity — the trigger has no way to tell effort or speed actually dropped, and would otherwise keep that recording going forever. Set how long to tolerate a missing data source before treating it as lost and stopping the recording automatically; any other still-live trigger on the same camera is unaffected and can keep it recording on its own. 0 disables this and waits indefinitely (the old behavior)."
+            android:layout_marginBottom="8dp" />
+
+        <LinearLayout
+            android:orientation="horizontal"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:layout_marginBottom="16dp">
+
+            <EditText
+                android:id="@+id/dataSourceLossTimeoutInput"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:inputType="number"
+                android:hint="Minutes (0 = never stop)" />
+
+            <Button
+                android:id="@+id/saveDataSourceLossTimeoutButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Save"
+                android:layout_marginStart="8dp" />
+
+        </LinearLayout>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="In-Ride Manual Control"
+            android:textStyle="bold"
+            android:textSize="18sp"
+            android:layout_marginBottom="4dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textSize="12sp"
+            android:text="Two ways to start/stop every saved camera at once, both unaffected by Hammerhead's rule hiding Control Center notifications for the whole duration of a ride: the tappable &quot;Insta360 Recording Control&quot; data field, which you can drop on any ride page, and the &quot;Toggle Camera Recording&quot; action, assignable to a controller button in the Karoo's own button settings. (A Control Center Start/Stop control used to be a third option here — removed since it's hidden for the entire ride by platform design, making it useless for exactly the case this section is about.) A recording started either of these ways (or from a camera's own Configure screen, its own physical shutter button, or after using Reconnect) is never auto-stopped by the automatic triggers — only a recording the triggers themselves started gets auto-stopped, so this protection lasts as long as the recording does, with nothing you need to do to keep it in effect. Stopping a camera this way briefly (a few seconds) pauses its automatic triggers so they can't immediately start it right back up if a trigger condition is still true — that pause always clears itself shortly after, whether or not you ever open that camera's Configure screen."
             android:layout_marginBottom="12dp" />
 
     </LinearLayout>

@@ -716,6 +716,366 @@ which the fix above already protects). There's a brief window right at
 shutter-button press where the extension's own recording-state read is
 still stale.
 
+**Fixed (2026-08-29) — automatic triggers permanently stopped working after a single
+Control Center start or stop.** A regression from the 2026-08-28 recording-ownership
+entry above, not a new independent bug: `startAllCameras()`/`stopAllCameras()` (the
+shared function behind Control Center, the ride-page tile, and the BonusAction) were
+still calling the *indefinite* `pauseAutomation()` added back on 2026-08-27, on the
+assumption they still needed the same protection `CameraConfigActivity` gives itself.
+Ownership tracking made that assumption false — a `RecordingOwner.MANUAL` recording can
+no longer be auto-stopped regardless of pause state — but nothing was ever calling
+`resumeAutomation()` for these three surfaces (unlike `CameraConfigActivity`, they have
+no "screen closes" moment to resume from), so the pause set on the very first Control
+Center tap for a camera just... stayed set. Forever. Silently disabling that camera's
+heart-rate/power/speed/radar triggers until someone happened to open and close its
+Configure screen — which most people never think to do after using Control Center,
+since nothing tells them to.
+
+**Fixed** by removing the pause from `startAllCameras()` entirely (ownership tracking
+already fully covers it — there was nothing left for the pause to protect) and replacing
+`stopAllCameras()`'s indefinite pause with a new `pauseAutomationBriefly()`: still needed
+there, since a manual Stop clears ownership back to `NONE` and an independently-true
+trigger condition would otherwise cause an immediate automatic restart on the monitor's
+very next ~1s tick — but now self-clears 3 seconds later instead of requiring a Configure
+visit. Updated the in-app Control Center description text and the affected doc comments
+to match.
+
+**Fixed (2026-08-29) — two things stopped working specifically during a ride (not on
+the home screen), reported after the first real on-bike test of a sideloaded build.**
+
+1. **Control Center's Start/Stop entry would disappear partway through a ride.** It was
+   only ever (re-)dispatched reactively — on connect, on a settings/camera-list change,
+   or on an actual recording-state change — which covers everything while testing on the
+   home screen, but not whatever the Karoo does to Control Center's contents around
+   ride-state transitions (starting/pausing/resuming/ending a ride). karoo-ext documents
+   no guarantee against this and gives no way to detect it directly, so rather than chase
+   an exact root cause with no device logs to look at, `Insta360Extension` now has two
+   independent nets: it re-dispatches the notification on every `RideState` change (the
+   most likely trigger), and unconditionally every 30 seconds regardless of why it
+   vanished — see `updateControlCenterNotification()`'s doc comment.
+
+2. **The "camera started/stopped recording" status-bar notification wasn't showing up
+   during a ride either — a separate, unrelated bug**, not the same one as #1. That
+   notification's channel was `IMPORTANCE_LOW`/`PRIORITY_LOW`, which on Android means
+   "sits silently in the shade, no heads-up banner" — invisible by design behind
+   whatever fullscreen ride page is on screen, since there's no shade to pull down
+   mid-ride. Bumped to `IMPORTANCE_HIGH`/`PRIORITY_HIGH` so it banners on top instead.
+   Because a `NotificationChannel`'s importance is fixed forever at first creation on a
+   given device (Android silently ignores importance on every later
+   `createNotificationChannel()` call for the same ID), the channel ID itself had to
+   change too (`recording_state` → `recording_state_hi`) — changing only the importance
+   value in code would have done nothing for anyone who'd already run an earlier build.
+   See `ensureNotificationChannel()`'s doc comment.
+
+**Fixed (2026-08-29) — three more issues from the first real on-bike test of build 0.2.**
+
+1. **Speed trigger seemed to never fire.** The Configure screen's speed fields were
+   labeled "(m/s)" and the comparison in `runCameraMonitor` compared directly against
+   the Karoo's raw m/s speed reading — technically correct, but a value entered assuming
+   mph (the unit riders actually think in) would be off by a factor of ~2.2x. Someone
+   entering "20" meaning 20 mph was actually setting a 20 m/s (44.7 mph) threshold,
+   which is why it looked broken — it was just never reachable at any normal riding
+   speed. Changed the fields to mph and added a conversion
+   (`Insta360Extension.METERS_PER_SECOND_PER_MPH`) before comparing against the raw
+   m/s reading. Existing saved thresholds are unaffected in storage — the same stored
+   number is just now interpreted as mph instead of m/s, which for anyone who'd already
+   entered a value assuming mph makes it start working with no changes needed on their
+   end.
+
+2. **Root cause found for Control Center's Start/Stop control being hidden during a
+   ride: it's Hammerhead's own documented, intentional behavior, not a bug.** Their
+   "Karoo OS - System Notifications" support article states outright: "System
+   Notifications will be hidden while riding so you can keep your focus on the road or
+   trail." `SystemNotification` (what Control Center's entry uses) *is* a System
+   Notification in Hammerhead's terms, so this control is invisible for the entire
+   duration of any ride by platform policy — no re-dispatch timing or frequency can
+   override that, which is also why the two independent re-dispatch mechanisms added the
+   day before had no effect on this specific symptom. They're left in place since
+   they're harmless and still useful for the (different, still-hypothetical) case of
+   this control getting cleared for some unrelated reason while *not* riding, but the
+   practical fix here is: don't rely on this control while actually riding. The
+   ride-page "Insta360 Recording Control" tile and the "Toggle Camera Recording"
+   BonusAction (a controller/shifter button) are unaffected by this Control-Center-
+   specific policy and are the surfaces that actually work mid-ride. Updated the in-app
+   description text and `updateControlCenterNotification()`'s doc comment to say this
+   plainly instead of speculating.
+
+3. **The status-bar "recording started/stopped" notification: seen as a heads-up
+   banner, but never found afterward in any drawer.** Given (2) above, and that
+   Hammerhead's own docs describe exactly two notification surfaces on Karoo — "System
+   Notifications" (Control Center, karoo-ext's own mechanism) and "Phone Notifications"
+   (forwarded from a paired phone via the Companion App, unrelated to a sideloaded app's
+   own notifications) — there's reason to believe a locally-posted Android
+   `NotificationCompat` notification may not have any persistent, user-accessible
+   "drawer" on Karoo at all, heads-up banner aside. Rather than continue chasing Android
+   notification channel settings against an OS behavior neither of us can fully see,
+   added a second, independent signal: `Insta360Extension` now also raises a native
+   karoo-ext `InRideAlert` ("critical messaging related to the current ride," per its
+   own doc comment) on every genuine start/stop, alongside — not instead of — the
+   existing status-bar notification. `InRideAlert` is guaranteed to actually render on
+   Karoo's screen regardless of what's true about the Android notification drawer or
+   Control Center's ride-hiding policy. Required adding
+   `Insta360ConnectionManager.Listener.onRecordingChanged()` (fired from the same
+   `startCapture()`/`stopCapture()` call sites as the existing notification, factored
+   through a new shared `onGenuineRecordingAction()`) since only the extension — not
+   `Insta360ConnectionManager` — holds a `KarooSystemService` to dispatch through. New
+   colors in `colors.xml` (`recording_started_bg`/`recording_stopped_bg`/
+   `recording_alert_text`) give the alert a green/blue-gray tint so start vs. stop reads
+   at a glance.
+
+**Versioning (2026-08-29):** `versionName` now follows `0.1.<build number>` (this build
+is `0.1.3`) rather than `0.<build number>`, per request — `versionCode` keeps
+incrementing by 1 per build regardless, since it doesn't need to encode the same scheme.
+
+**Added (2026-08-29, build 0.1.4) — manual "Reconnect" button, for when Karoo/camera
+power-on timing don't line up.** Reported symptom: sometimes the Karoo and camera don't
+connect at all after both power on, apparently because of a timing mismatch between when
+each becomes ready. Root cause: `Insta360ConnectionManager.connectToSaved()` guards
+against duplicate connection attempts with `if (isConnected(address) ||
+clients.containsKey(address)) return`. If a BLE connect attempt is made while the camera
+isn't actually ready to accept it, the resulting `Insta360BleClient` can get stuck in
+`clients` without ever calling back `onConnected()` or `onDisconnected()` — not
+connected (so the UI correctly shows "Disconnected"), but still occupying the map entry
+that blocks every future automatic retry from `retryLater()`. Previously the only fix was
+force-closing the app so process death cleared `clients` from scratch.
+
+Added `Insta360ConnectionManager.reconnect(context, address)` — tears down whatever's in
+`clients` for that address (stuck, genuinely connected, or nothing) via the existing
+`disconnect()`, then calls `connectToSaved()` again to force a genuinely fresh attempt.
+Originally wired to a Reconnect button on `CameraConfigActivity`; moved the same day (see
+below) to each camera's row on the main camera list instead, so it's reachable without
+opening Configure first.
+
+**Removed (2026-08-29, build 0.1.5) — the Karoo Control Center Start/Stop control.** Now
+that Hammerhead's own documentation confirmed Control Center notifications are hidden for
+the entire duration of any ride (see the build-0.2 entry above), that control was never
+usable for the in-ride case it existed for — it only ever worked before/after a ride, which
+the tappable ride-page tile and the controller-button BonusAction also cover, so it was
+pure surface area with no remaining use case. Removed: the "Control Center" setting and
+checkbox in `MainActivity`, `AppSettings.isControlCenterControlEnabled`/
+`setControlCenterControlEnabled` (and the now-unneeded generic
+`registerChangeListener`/`unregisterChangeListener` pair on `AppSettings`, which existed
+only to let the extension react to that one setting), `Insta360Extension`'s
+`updateControlCenterNotification()`/`startControlCenterRefresh()`/
+`stopControlCenterRefresh()` and their `RideState`-collector/30s-repost jobs, the
+`ControlCenterActionActivity` trampoline (deleted outright — its manifest entry, and the
+`Theme.Transparent.NoDisplay` style that existed only for it), and
+`RecordingActions.ACTION_START_ALL`/`ACTION_STOP_ALL` (only `ACTION_TOGGLE_ALL`, used by
+the ride-page tile, remains). `Insta360ConnectionManager.startAllCameras()`/
+`stopAllCameras()` are unchanged and still used internally by `toggleAllCameras()`. The
+in-app "Control Center" section in `MainActivity` was replaced with an "In-Ride Manual
+Control" section explaining the two surfaces that actually work mid-ride.
+
+**Moved (2026-08-29, build 0.1.5) — the Reconnect button now lives on the main camera
+list, not the Configure screen.** Each camera's row in `MainActivity` (alongside
+Configure/Remove) now has its own **Reconnect** button, so recovering a camera that never
+connected in the first place (see the build-0.1.4 entry above) doesn't require opening
+Configure — useful since a camera stuck in that state also can't be told apart from a
+normal "Disconnected" camera without already knowing to look. `CameraConfigActivity` no
+longer has a Reconnect button.
+
+**Added (2026-08-29, build 0.1.5) — Speed and Radar trigger units are now chosen per
+camera instead of fixed app-wide.** Speed can be entered in mph or km/h; Radar's trigger
+distance can be entered in feet or meters — each camera picks independently via a new pair
+of radio buttons in `CameraConfigActivity` (Speed: `speedUnitGroup`; Radar:
+`radarUnitGroup`). `CameraStore.CameraConfig` gained `speedUnit: SpeedUnit` (`MPH`/`KMH`)
+and `radarUnit: DistanceUnit` (`FEET`/`METERS`), each carrying its own conversion factor to
+the Karoo's raw SI units (m/s for speed, meters for radar) — `Insta360Extension`'s
+per-camera monitor now multiplies by `config.speedUnit.metersPerSecondPerUnit`/
+`config.radarUnit.metersPerUnit` instead of the fixed `METERS_PER_SECOND_PER_MPH`/
+`METERS_PER_FOOT` constants those replace. A camera saved before this change has no stored
+unit at all; loading one defaults to `MPH`/`FEET` — the units this app used exclusively
+before today — so its existing numbers keep meaning exactly what they did. Switching a
+camera's unit does **not** convert its already-entered threshold number; the UI says so
+next to each unit picker, since silently reinterpreting "20" from 20 mph to 20 km/h (very
+different speeds) would be worse than requiring a manual re-entry.
+
+**Changed (2026-08-29, build 0.1.6) — Power's stop trigger now uses a rolling 3-second
+average, with a configurable number of tolerated spikes.** Reported issue: the power stop
+trigger felt too twitchy after a day of real testing. Previously it compared the Karoo's
+*instantaneous* power reading straight against `stopThreshold`, sustained for
+`stopSeconds` — a single low-power tick (freewheeling for a second while still working
+hard overall) could restart the whole stop countdown from zero, or a single tick that
+happened to be high could cancel a countdown that was otherwise legitimately about to
+finish. Power's stop check now instead averages the last `POWER_STOP_AVERAGE_SAMPLES`
+(3) one-second ticks — a true 3-second rolling average — before comparing to
+`stopThreshold`.
+
+On top of that, added a configurable **allowed spikes** setting (0-5, new
+`powerStopAllowedSpikes` field, new field in `CameraConfigActivity`'s Power section): while
+a stop countdown is already running, the rolling average is allowed to spike back to/above
+`stopThreshold` — without cancelling the countdown — up to this many times per stop
+attempt, each capped at 3 seconds (`POWER_STOP_MAX_SPIKE_MS`, matching the average window
+itself). A spike that runs longer than 3 seconds, or that happens after the allowance is
+used up, is treated as a genuine return to effort and cancels the countdown as before. The
+default is 0 (no spikes tolerated) — matching the exact behavior every camera had before
+this feature existed, aside from the underlying instantaneous-vs-3s-average change, which
+applies unconditionally. All of this new state
+(`powerStopSamples`/`powerSpikeActive`/`powerSpikeStartTime`/`powerSpikesUsed` in
+`runCameraMonitor`) resets whenever a stop attempt actually completes or is cancelled, so
+each new attempt starts with a fresh 3-second window and a fresh spike allowance. Heart
+Rate's stop side is unchanged (still instantaneous) — this request was specifically about
+Power.
+
+**Investigated (2026-08-29) — reported "speed trigger fired at a lower speed than
+expected."** Re-checked the mph/km-h math end to end: `SpeedUnit.MPH`'s conversion factor
+(0.44704 m/s per mph) and `KMH`'s (0.277778 m/s per km/h) are both correct, and
+`runCameraMonitor`'s speed latch multiplies the configured threshold by that factor before
+comparing against the Karoo's raw speed reading — the logic itself checks out. The one
+thing that can't be verified from here: Hammerhead's public karoo-ext documentation never
+explicitly states what unit `DataType.Type.SPEED`'s raw stream is actually in. Every
+available signal points to it being plain m/s regardless of the Karoo's own display-unit
+setting — that's the universal ANT+/FIT convention for cycling computers, and karoo-ext's
+own docs describe unit conversion as happening only in the separate view-formatting step
+(`UpdateNumericConfig`/`UpdateGraphicConfig`'s `formatDataTypeId`), which would be
+redundant if the raw stream were already unit-converted — but this isn't something a public
+doc states outright, so it remains the one assumption in this calculation that only a real
+device test can confirm or rule out. Added logging to make that test possible: both speed
+threshold crossings in `runCameraMonitor` now log the raw Karoo reading in m/s alongside
+the configured threshold and its converted m/s equivalent (e.g. `rawSpeed=8.1m/s,
+threshold=18.0mph = 8.04672m/s`) — capturing logcat (`adb logcat -s Insta360Extension:*`)
+around the moment a speed trigger fires and comparing `rawSpeed` to your actual known speed
+at that instant (from a separate bike computer, GPS app, or car speedometer) will show
+directly whether the Karoo's raw value is really m/s, or something else entirely (e.g.
+already mph, which would make triggers fire at roughly 0.45x the intended real speed — a
+plausible match for "fired lower than expected"). Not yet resolved without that data point.
+
+**Added (2026-08-29, build 0.1.7) — logging overhaul so every start/stop, and every
+suppressed non-start/non-stop, is traceable from `adb logcat -s Insta360Extension:*
+Insta360ConnMgr:*` alone.** Prompted by two follow-up requests after auditing what was and
+wasn't logged: (1) "the log needs to be clearer and specify which effort triggered a start
+or stop," and (2) "even if the trigger is ignored because recording is already occuring."
+Previously Heart Rate's and the combined "effort" latch's logs were bare (no values, and no
+way to tell whether HR or Power actually caused a given crossing), and the final
+start/stop decision in `runCameraMonitor` had **no logging at all** for its no-op paths —
+if a trigger fired but the camera was already recording (or the recording belonged to a
+manual start, or automation was paused for that camera), nothing was logged; the line
+simply did nothing.
+
+Two changes:
+
+- **Per-metric attribution.** Heart Rate's and Power's start/stop crossings each now log
+  their own value against their own threshold, the same way Speed's crossings already did
+  (e.g. `heart rate (165bpm ≥ 160bpm for 5s)`, `power (3s avg 210.4W < 200W for 10s, spikes
+  used 1/2)`). Since either metric can independently start or stop the shared "effort"
+  latch, the combined log line now names *which one(s)* actually crossed that tick (e.g.
+  `effort start: heart rate (...) and power (...)` when both cross together) instead of the
+  old generic "effort threshold sustained." Radar's logs got the same treatment (now include
+  the live distance reading, not just the configured threshold).
+- **Every combine-step outcome is now logged, not just the ones that took an action.**
+  `runCameraMonitor`'s final "should this camera be recording right now" step now logs all
+  six possible outcomes each tick can land on: sending a start command, sending a stop
+  command, a start suppressed because the camera is *already recording* (the exact case
+  named in the request — logged as `... but camera is ALREADY RECORDING (owner=...) — start
+  IGNORED, no action taken`), a stop suppressed because the current recording isn't owned by
+  this automation (a manual start, the ride-page tile, or the camera's own shutter button),
+  automation paused for that camera, and plain idle. Each log line names which latch(es)
+  currently want recording (`effort`, `speed`, `radar`, or a `+`-joined combination) and
+  includes the most recent per-metric detail string, so a single line answers "what wanted
+  it, why, and what actually happened." To avoid re-logging the same steady-state line once
+  a second for an entire multi-minute recording, this is edge-triggered — only a *change* in
+  outcome from the previous tick produces a new log line — but every actual state change
+  still gets one.
+- `startCapture`/`stopCapture` in `Insta360ConnectionManager` now take an optional `reason`
+  string, included in both the success log and the existing "ignored — not connected"
+  warning, so the connection-manager layer's "what actually happened at the BLE level" can
+  be matched to the extension layer's "why we tried" without cross-referencing timestamps.
+  Manual callers (Configure screen's Start/Stop buttons, the ride-page tile/BonusAction's
+  start-all/stop-all) now pass their own descriptive reasons too.
+
+**Added (2026-08-29, build 0.1.8) — named configuration profiles for the whole camera
+fleet.** Request: reconfiguring every camera's trigger thresholds by hand each time you
+switch riding contexts (e.g. a road ride vs. a gravel race with different speed/radar
+cutoffs) was tedious. New `ProfileStore` object, modeled on `CameraStore`'s own
+SharedPreferences-JSON approach: a profile is a user-named snapshot of every saved camera's
+*full* trigger configuration (heart rate/power/speed/radar thresholds and durations, units,
+and power's spike tolerance — everything except each camera's address/name identity),
+keyed by BLE address so different cameras can keep different settings within the same
+profile (asked and confirmed explicitly — a profile is not one shared value forced onto
+every camera).
+
+New "Configuration Profiles" section on the main screen, directly below the camera list per
+the request:
+
+- **Save Current Settings as New Profile** — prompts for a name, then snapshots every
+  currently-saved camera's settings into a brand new profile and makes it the active one.
+- Each saved profile gets its own row with **Apply** (writes that profile's settings back
+  into every camera it covers, via the same `CameraStore.addOrUpdateCamera` path a manual
+  edit in `CameraConfigActivity` would use — so it fires the usual change listener and
+  `Insta360Extension` picks up the new thresholds immediately, no restart needed),
+  **Update** (overwrites the profile with every camera's *current* settings — for after
+  you've tweaked something and want to save it back), **Rename**, and **Delete**. Split
+  across two two-button rows rather than one four-button row — didn't fit comfortably on
+  the Karoo's narrow screen the way the camera list's three buttons already do.
+- A camera whose address isn't covered by a profile (added after that profile was created,
+  or never part of it) is simply left untouched when that profile is applied — surfaced in
+  a Toast ("Applied 'Road' to 2 camera(s); 1 camera not in this profile were left
+  unchanged") rather than silently doing nothing, so a forgotten camera doesn't go
+  unnoticed.
+- "Active profile" (shown at the top of the section) is bookkeeping only — the most
+  recently applied (or saved) profile's name, for reference. It is not continuously
+  enforced: editing a camera's settings by hand afterward silently drifts it away from
+  matching that profile, same as changing one value in a saved preset without re-saving it
+  — use **Update** to bring the profile back in sync when that's what you want.
+
+**Redesigned (2026-08-29, build 0.1.9) — profiles now own trigger configuration entirely;
+0.1.8's design is superseded.** Direct feedback on 0.1.8: "I don't like how you've
+implemented profiles. All of the triggers should be configured in the profile, not under
+the camera settings," followed by "you should be able to configure what cameras are active
+in each profile and then the trigger settings for each of the cameras considered in that
+profile." 0.1.8 had it backwards — each camera still owned its own real trigger settings,
+and a profile was just a save/restore snapshot of them (`CameraStore.CameraConfig` carried
+heartRate/power/speed/radar directly, `ProfileStore` copied those values in and back out).
+This build reverses that:
+
+- **`CameraStore.CameraConfig` is now identity-only** — address and name, nothing else.
+  Every trigger field that used to live there is gone.
+- **`ProfileStore.Profile` is the sole owner of trigger configuration**, and now tracks two
+  things explicitly: `activeCameraAddresses` — *which* saved cameras this profile
+  considers at all — and `cameraSettings` — the full heart rate/power/speed/radar
+  configuration for each camera it's ever included. Switching a camera off within a
+  profile (unchecking it) doesn't erase its settings from `cameraSettings`, only from
+  `activeCameraAddresses` — switching it back on later restores exactly what it had before,
+  the same way muting a track in a DAW doesn't erase the track.
+- **New `ProfileActivity`** (reached via each profile's **Configure** button on the main
+  screen, replacing 0.1.8's **Update** button, which no longer means anything now that
+  cameras don't hold their own settings to snapshot) lists every saved camera with a
+  checkbox for whether this profile includes it, and a **Configure Triggers** button (shown
+  only when checked) into...
+- **New `ProfileCameraConfigActivity`** — the actual heart rate/power/speed/radar form,
+  moved here verbatim from `CameraConfigActivity`, now scoped to one (profile, camera)
+  pair and saved via `ProfileStore.updateCameraSettings` instead of `CameraStore`.
+- **`CameraConfigActivity` is stripped down to identity only** — rename, manual Start/Stop
+  test, Remove. A note in its layout points to the profile's Configure screen for actual
+  trigger editing.
+- **"Active profile" is now continuously enforced, not just a label.** `Insta360Extension`'s
+  `resyncCameraMonitors` only starts a monitor coroutine for a camera that is both
+  currently saved AND present in the *active* profile's `activeCameraAddresses` — a camera
+  outside the active profile gets no monitor at all, not one running with empty/disabled
+  settings. The extension now listens for `ProfileStore` changes the same way it already
+  listened for `CameraStore` changes, so toggling a camera in `ProfileActivity`, editing its
+  triggers in `ProfileCameraConfigActivity`, or applying a different profile all take effect
+  within the next ~1s tick, no restart needed. **Apply** on the main screen is now just
+  `ProfileStore.activateProfile` (an id pointer flip) rather than 0.1.8's per-camera write —
+  simpler, since there's no longer anything to copy anywhere.
+- **Creating a new profile** now includes every currently-saved camera switched on by
+  default, seeded from the *currently-active* profile's settings where it covers the same
+  camera (falling back to sane defaults otherwise) — so a new profile starts from a known
+  baseline instead of every trigger reset to zero — and immediately opens `ProfileActivity`
+  for it, since reviewing/adjusting per-camera settings is exactly what you'd want to do
+  next with a brand new profile.
+- **Migration:** anyone upgrading from 0.1.7 or earlier (before profiles existed at all)
+  had real, ride-tested trigger settings sitting directly on their cameras in the old
+  format. `CameraStore.migrateLegacyTriggersToProfileIfNeeded` runs once, reads that old
+  per-camera JSON directly (bypassing the new, simplified parser, which no longer knows
+  those fields exist), and — only if no profile exists yet at all — packages whatever had
+  real enabled triggers into one new "Migrated Settings" profile, switched on and made
+  active, so upgrading straight to 0.1.9 doesn't silently throw those numbers away. Anyone
+  who already made real profiles in 0.1.8 keeps them untouched: their saved
+  `cameraSettings` carry over as-is, and a profile from that build with no
+  `activeCameraAddresses` key at all (added this version) is read as if every camera it had
+  settings for was already switched on, matching 0.1.8's actual behavior.
+
 ## Attribution
 
 BLE protocol reverse-engineering courtesy of

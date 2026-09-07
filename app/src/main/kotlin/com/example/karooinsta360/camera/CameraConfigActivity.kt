@@ -3,7 +3,6 @@ package com.example.karooinsta360.camera
 import android.content.Intent
 import android.os.Bundle
 import android.widget.Button
-import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.TextView
 import android.widget.Toast
@@ -12,9 +11,14 @@ import com.example.karooinsta360.R
 import com.example.karooinsta360.connection.Insta360ConnectionManager
 
 /**
- * Per-camera settings screen: rename, remove, manually test (Start/Stop), and configure
- * the four independent trigger metrics (see [Insta360Extension] for how heart rate/
- * power/speed/radar combine — this screen just edits the numbers).
+ * Per-camera **identity** screen: rename, remove, and manually test (Start/Stop).
+ *
+ * **Changed (2026-08-29, build 0.1.9):** this used to also be where all four trigger
+ * metrics (heart rate/power/speed/radar) got configured. That configuration now lives
+ * entirely in [ProfileStore] instead — see [ProfileActivity]/[ProfileCameraConfigActivity]
+ * — since a camera's trigger behavior is a property of whichever profile currently has it
+ * switched on, not of the camera itself. This screen only knows about the camera's
+ * identity (address/name) and its live connection/recording status.
  *
  * While this screen is visible it pauses the extension's automatic trigger monitor for
  * this camera (see [Insta360ConnectionManager.pauseAutomation]) so the manual Start/Stop
@@ -35,32 +39,6 @@ class CameraConfigActivity : AppCompatActivity() {
     private lateinit var statusText: TextView
     private lateinit var startButton: Button
     private lateinit var stopButton: Button
-
-    private lateinit var hrEnabled: CheckBox
-    private lateinit var hrStartThreshold: EditText
-    private lateinit var hrStopThreshold: EditText
-    private lateinit var hrStartSeconds: EditText
-    private lateinit var hrStopSeconds: EditText
-
-    private lateinit var powerEnabled: CheckBox
-    private lateinit var powerStartThreshold: EditText
-    private lateinit var powerStopThreshold: EditText
-    private lateinit var powerStartSeconds: EditText
-    private lateinit var powerStopSeconds: EditText
-
-    private lateinit var speedEnabled: CheckBox
-    private lateinit var speedStartThreshold: EditText
-    private lateinit var speedStopThreshold: EditText
-    private lateinit var speedStartSeconds: EditText
-    private lateinit var speedStopSeconds: EditText
-
-    // Radar has no separate stop threshold — see readRadarTrigger()/the layout's Radar
-    // section for why (its stop condition is "no vehicle on radar," not a crossed value).
-    private lateinit var radarEnabled: CheckBox
-    private lateinit var radarStartThreshold: EditText
-    private lateinit var radarStartSeconds: EditText
-    private lateinit var radarStopSeconds: EditText
-
     private lateinit var saveButton: Button
     private lateinit var removeButton: Button
 
@@ -84,42 +62,24 @@ class CameraConfigActivity : AppCompatActivity() {
         statusText = findViewById(R.id.configStatusText)
         startButton = findViewById(R.id.configStartButton)
         stopButton = findViewById(R.id.configStopButton)
-
-        hrEnabled = findViewById(R.id.hrEnabledCheckbox)
-        hrStartThreshold = findViewById(R.id.hrStartThresholdInput)
-        hrStopThreshold = findViewById(R.id.hrStopThresholdInput)
-        hrStartSeconds = findViewById(R.id.hrStartSecondsInput)
-        hrStopSeconds = findViewById(R.id.hrStopSecondsInput)
-
-        powerEnabled = findViewById(R.id.powerEnabledCheckbox)
-        powerStartThreshold = findViewById(R.id.powerStartThresholdInput)
-        powerStopThreshold = findViewById(R.id.powerStopThresholdInput)
-        powerStartSeconds = findViewById(R.id.powerStartSecondsInput)
-        powerStopSeconds = findViewById(R.id.powerStopSecondsInput)
-
-        speedEnabled = findViewById(R.id.speedEnabledCheckbox)
-        speedStartThreshold = findViewById(R.id.speedStartThresholdInput)
-        speedStopThreshold = findViewById(R.id.speedStopThresholdInput)
-        speedStartSeconds = findViewById(R.id.speedStartSecondsInput)
-        speedStopSeconds = findViewById(R.id.speedStopSecondsInput)
-
-        radarEnabled = findViewById(R.id.radarEnabledCheckbox)
-        radarStartThreshold = findViewById(R.id.radarThresholdInput)
-        radarStartSeconds = findViewById(R.id.radarStartSecondsInput)
-        radarStopSeconds = findViewById(R.id.radarStopSecondsInput)
-
         saveButton = findViewById(R.id.saveConfigButton)
         removeButton = findViewById(R.id.removeCameraButton)
 
         addressText.text = address
         startButton.setOnClickListener {
-            Insta360ConnectionManager.startCapture(address, Insta360ConnectionManager.RecordingOwner.MANUAL)
+            Insta360ConnectionManager.startCapture(
+                address,
+                Insta360ConnectionManager.RecordingOwner.MANUAL,
+                reason = "manual Start button (Configure screen)",
+            )
         }
-        stopButton.setOnClickListener { Insta360ConnectionManager.stopCapture(address) }
-        saveButton.setOnClickListener { saveConfig() }
+        stopButton.setOnClickListener {
+            Insta360ConnectionManager.stopCapture(address, reason = "manual Stop button (Configure screen)")
+        }
+        saveButton.setOnClickListener { saveName() }
         removeButton.setOnClickListener { removeCamera() }
 
-        loadConfig()
+        loadCamera()
         Insta360ConnectionManager.addListener(connectionListener)
         updateStatusText()
     }
@@ -139,15 +99,10 @@ class CameraConfigActivity : AppCompatActivity() {
     }
 
     override fun onPause() {
-        // Also the only place a camera left paused by the Karoo Control Center
-        // notification, the ride-page tile, or the controller-button BonusAction gets
-        // its pause cleared — those three are a single tap/press with no "screen
-        // closing" moment of their own (see Insta360ConnectionManager.
-        // startAllCameras/stopAllCameras). This only re-arms the automatic triggers to
-        // watch this camera again; it's not what protects a manually-started recording
-        // from being auto-stopped (that's recording ownership — see
-        // Insta360ConnectionManager.RecordingOwner — which lasts for the whole
-        // recording regardless of whether this screen is ever opened).
+        // Just re-arms the automatic triggers to watch this camera again — it's not
+        // what protects a manually-started recording from being auto-stopped (that's
+        // recording ownership — see Insta360ConnectionManager.RecordingOwner — which
+        // lasts for the whole recording regardless of whether this screen is ever opened).
         Insta360ConnectionManager.resumeAutomation(address)
         super.onPause()
     }
@@ -167,131 +122,15 @@ class CameraConfigActivity : AppCompatActivity() {
         }
     }
 
-    private fun loadConfig() {
-        val config = CameraStore.getCamera(this, address) ?: CameraStore.CameraConfig(address = address, name = address)
-        nameInput.setText(config.name)
-
-        hrEnabled.isChecked = config.heartRate.enabled
-        hrStartThreshold.setText(formatFloat(config.heartRate.startThreshold))
-        hrStopThreshold.setText(formatFloat(config.heartRate.stopThreshold))
-        hrStartSeconds.setText(config.heartRate.startSeconds.toString())
-        hrStopSeconds.setText(config.heartRate.stopSeconds.toString())
-
-        powerEnabled.isChecked = config.power.enabled
-        powerStartThreshold.setText(formatFloat(config.power.startThreshold))
-        powerStopThreshold.setText(formatFloat(config.power.stopThreshold))
-        powerStartSeconds.setText(config.power.startSeconds.toString())
-        powerStopSeconds.setText(config.power.stopSeconds.toString())
-
-        speedEnabled.isChecked = config.speed.enabled
-        speedStartThreshold.setText(formatFloat(config.speed.startThreshold))
-        speedStopThreshold.setText(formatFloat(config.speed.stopThreshold))
-        speedStartSeconds.setText(config.speed.startSeconds.toString())
-        speedStopSeconds.setText(config.speed.stopSeconds.toString())
-
-        radarEnabled.isChecked = config.radar.enabled
-        radarStartThreshold.setText(formatFloat(config.radar.startThreshold))
-        radarStartSeconds.setText(config.radar.startSeconds.toString())
-        radarStopSeconds.setText(config.radar.stopSeconds.toString())
+    private fun loadCamera() {
+        val camera = CameraStore.getCamera(this, address) ?: CameraStore.CameraConfig(address = address, name = address)
+        nameInput.setText(camera.name)
     }
 
-    private fun formatFloat(value: Float): String =
-        if (value == value.toLong().toFloat()) value.toLong().toString() else value.toString()
-
-    /** Heart Rate / Power / Speed: an independent start value and stop value. */
-    private fun readTrigger(
-        enabled: CheckBox,
-        startThreshold: EditText,
-        stopThreshold: EditText,
-        startSeconds: EditText,
-        stopSeconds: EditText,
-        label: String,
-    ): CameraStore.MetricTrigger? {
-        if (!enabled.isChecked) return CameraStore.MetricTrigger(enabled = false)
-
-        val start = startThreshold.text.toString().toFloatOrNull()
-        val stop = stopThreshold.text.toString().toFloatOrNull()
-        val startSec = startSeconds.text.toString().toIntOrNull()
-        val stopSec = stopSeconds.text.toString().toIntOrNull()
-        if (start == null || stop == null || startSec == null || stopSec == null ||
-            start <= 0f || stop <= 0f || startSec < 0 || stopSec < 0
-        ) {
-            Toast.makeText(
-                this,
-                "$label: enter valid start/stop values and non-negative durations",
-                Toast.LENGTH_LONG,
-            ).show()
-            return null
-        }
-        return CameraStore.MetricTrigger(
-            enabled = true,
-            startThreshold = start,
-            stopThreshold = stop,
-            startSeconds = startSec,
-            stopSeconds = stopSec,
-        )
-    }
-
-    /**
-     * Radar: only a start distance — there's no separate stop threshold to read, since
-     * stop means "no vehicle detected" rather than a second distance (see
-     * [Insta360Extension]'s radar latch). [startThreshold] is stored in both
-     * [CameraStore.MetricTrigger.startThreshold] and `.stopThreshold` purely so the field
-     * is never left at a stale/meaningless value — the stop side of the code never reads
-     * it.
-     */
-    private fun readRadarTrigger(
-        enabled: CheckBox,
-        startThreshold: EditText,
-        startSeconds: EditText,
-        stopSeconds: EditText,
-    ): CameraStore.MetricTrigger? {
-        if (!enabled.isChecked) return CameraStore.MetricTrigger(enabled = false)
-
-        val distance = startThreshold.text.toString().toFloatOrNull()
-        val startSec = startSeconds.text.toString().toIntOrNull()
-        val stopSec = stopSeconds.text.toString().toIntOrNull()
-        if (distance == null || startSec == null || stopSec == null || distance <= 0f || startSec < 0 || stopSec < 0) {
-            Toast.makeText(
-                this,
-                "Radar: enter a valid trigger distance and non-negative durations",
-                Toast.LENGTH_LONG,
-            ).show()
-            return null
-        }
-        return CameraStore.MetricTrigger(
-            enabled = true,
-            startThreshold = distance,
-            stopThreshold = distance,
-            startSeconds = startSec,
-            stopSeconds = stopSec,
-        )
-    }
-
-    private fun saveConfig() {
+    private fun saveName() {
         val name = nameInput.text.toString().trim().ifEmpty { address }
-
-        val hr = readTrigger(hrEnabled, hrStartThreshold, hrStopThreshold, hrStartSeconds, hrStopSeconds, "Heart Rate")
-            ?: return
-        val power = readTrigger(powerEnabled, powerStartThreshold, powerStopThreshold, powerStartSeconds, powerStopSeconds, "Power")
-            ?: return
-        val speed = readTrigger(speedEnabled, speedStartThreshold, speedStopThreshold, speedStartSeconds, speedStopSeconds, "Speed")
-            ?: return
-        val radar = readRadarTrigger(radarEnabled, radarStartThreshold, radarStartSeconds, radarStopSeconds)
-            ?: return
-
-        CameraStore.addOrUpdateCamera(
-            this,
-            CameraStore.CameraConfig(
-                address = address,
-                name = name,
-                heartRate = hr,
-                power = power,
-                speed = speed,
-                radar = radar,
-            ),
-        )
-        Toast.makeText(this, "Saved — takes effect immediately", Toast.LENGTH_SHORT).show()
+        CameraStore.addOrUpdateCamera(this, CameraStore.CameraConfig(address = address, name = name))
+        Toast.makeText(this, "Saved", Toast.LENGTH_SHORT).show()
     }
 
     private fun removeCamera() {

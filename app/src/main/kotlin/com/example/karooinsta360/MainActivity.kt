@@ -1,6 +1,7 @@
 package com.example.karooinsta360
 
 import android.Manifest
+import android.app.AlertDialog
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Typeface
@@ -20,12 +21,25 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import com.example.karooinsta360.camera.CameraConfigActivity
 import com.example.karooinsta360.camera.CameraStore
+import com.example.karooinsta360.camera.ProfileActivity
+import com.example.karooinsta360.camera.ProfileStore
 import com.example.karooinsta360.connection.Insta360ConnectionManager
 
 /**
  * Camera list: shows every saved camera (name + address + live connected/recording
- * status), lets you scan for new ones or add one by address, remove a camera, or jump
- * into [CameraConfigActivity] to edit its trigger settings.
+ * status), lets you scan for new ones or add one by address, remove a camera, force a
+ * fresh Bluetooth reconnect attempt (see [Insta360ConnectionManager.reconnect]), or jump
+ * into [CameraConfigActivity] to rename/remove/manually test it.
+ *
+ * Also manages **configuration profiles** (2026-08-29, see [ProfileStore]) — named,
+ * user-created sets of which cameras are switched on and what their heart rate/power/
+ * speed/radar trigger settings are. **Changed (build 0.1.9):** trigger configuration now
+ * lives entirely on the profile (via [ProfileActivity]/`ProfileCameraConfigActivity`) —
+ * this screen only creates/applies/renames/deletes profiles, it doesn't edit their
+ * contents directly. Applying a profile (see [ProfileStore.activateProfile]) makes it the
+ * one [com.example.karooinsta360.extension.Insta360Extension] drives automation from —
+ * switching between e.g. a "Road" and a "Gravel race" profile reconfigures the whole
+ * fleet's trigger behavior in one tap.
  *
  * Sideload this the same way you'd sideload any Karoo extension APK.
  */
@@ -39,7 +53,12 @@ class MainActivity : AppCompatActivity() {
     private lateinit var manualAddressInput: EditText
     private lateinit var manualAddButton: Button
     private lateinit var notifyCheckbox: CheckBox
-    private lateinit var controlCenterCheckbox: CheckBox
+    private lateinit var dataSourceLossTimeoutInput: EditText
+    private lateinit var saveDataSourceLossTimeoutButton: Button
+    private lateinit var activeProfileText: TextView
+    private lateinit var noProfilesText: TextView
+    private lateinit var profileListContainer: LinearLayout
+    private lateinit var saveNewProfileButton: Button
 
     // address -> name, for devices found by the current scan but not yet saved.
     private val discovered = LinkedHashMap<String, String>()
@@ -86,10 +105,16 @@ class MainActivity : AppCompatActivity() {
         manualAddressInput = findViewById(R.id.manualAddressInput)
         manualAddButton = findViewById(R.id.manualAddButton)
         notifyCheckbox = findViewById(R.id.notifyOnRecordingChangeCheckbox)
-        controlCenterCheckbox = findViewById(R.id.controlCenterControlCheckbox)
+        dataSourceLossTimeoutInput = findViewById(R.id.dataSourceLossTimeoutInput)
+        saveDataSourceLossTimeoutButton = findViewById(R.id.saveDataSourceLossTimeoutButton)
+        activeProfileText = findViewById(R.id.activeProfileText)
+        noProfilesText = findViewById(R.id.noProfilesText)
+        profileListContainer = findViewById(R.id.profileListContainer)
+        saveNewProfileButton = findViewById(R.id.saveNewProfileButton)
 
         scanForCamerasButton.setOnClickListener { requestPermissionsAndScan() }
         manualAddButton.setOnClickListener { addByAddress() }
+        saveNewProfileButton.setOnClickListener { promptSaveNewProfile() }
 
         notifyCheckbox.isChecked = AppSettings.isRecordingNotificationEnabled(this)
         notifyCheckbox.setOnCheckedChangeListener { _, checked ->
@@ -97,13 +122,8 @@ class MainActivity : AppCompatActivity() {
             if (checked) requestNotificationPermissionIfNeeded()
         }
 
-        // No runtime permission needed here — this posts through karoo-ext's own
-        // SystemNotification effect straight into the Karoo's Control Center, not
-        // Android's NotificationManager, so POST_NOTIFICATIONS doesn't apply to it.
-        controlCenterCheckbox.isChecked = AppSettings.isControlCenterControlEnabled(this)
-        controlCenterCheckbox.setOnCheckedChangeListener { _, checked ->
-            AppSettings.setControlCenterControlEnabled(this, checked)
-        }
+        dataSourceLossTimeoutInput.setText(AppSettings.getDataSourceLossTimeoutMinutes(this).toString())
+        saveDataSourceLossTimeoutButton.setOnClickListener { saveDataSourceLossTimeout() }
 
         Insta360ConnectionManager.ensureStarted(this)
         Insta360ConnectionManager.addListener(connectionListener)
@@ -112,6 +132,7 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         refreshCameraList() // picks up name/config edits made in CameraConfigActivity
+        refreshProfileList()
 
         // Catches the case where the user granted notification permission earlier, then
         // revoked it from system Settings without ever touching this checkbox — without
@@ -178,6 +199,18 @@ class MainActivity : AppCompatActivity() {
         )
         buttonRow.addView(
             Button(this).apply {
+                text = "Reconnect"
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                    marginStart = dp(8)
+                }
+                setOnClickListener {
+                    Insta360ConnectionManager.reconnect(this@MainActivity, state.address)
+                    Toast.makeText(this@MainActivity, "Reconnecting…", Toast.LENGTH_SHORT).show()
+                }
+            },
+        )
+        buttonRow.addView(
+            Button(this).apply {
                 text = "Remove"
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
                     marginStart = dp(8)
@@ -190,6 +223,173 @@ class MainActivity : AppCompatActivity() {
         )
         row.addView(buttonRow)
         return row
+    }
+
+    // --- Configuration profiles ---
+    //
+    // See ProfileStore's doc comment for the full model — a profile owns both *which*
+    // cameras it considers (ProfileActivity) and their trigger settings
+    // (ProfileCameraConfigActivity, reached from there); this screen only creates/applies/
+    // renames/deletes whole profiles. Rows here mirror buildCameraRow's pattern (a title
+    // line, then a row of equal-weight action buttons) split across two button rows rather
+    // than one, since four buttons in a single row don't comfortably fit the Karoo's
+    // narrow screen the way the camera list's three already do.
+
+    private fun refreshProfileList() {
+        val profiles = ProfileStore.getProfiles(this)
+        val activeId = ProfileStore.getActiveProfileId(this)
+        noProfilesText.visibility = if (profiles.isEmpty()) View.VISIBLE else View.GONE
+        activeProfileText.text = "Active profile: " + (profiles.find { it.id == activeId }?.name ?: "none")
+        profileListContainer.removeAllViews()
+        profiles.forEach { profile -> profileListContainer.addView(buildProfileRow(profile, activeId)) }
+    }
+
+    private fun buildProfileRow(profile: ProfileStore.Profile, activeId: String?): View {
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, 0, 0, dp(16))
+        }
+
+        val isActive = profile.id == activeId
+        row.addView(
+            TextView(this).apply {
+                text = if (isActive) "${profile.name} (active)" else profile.name
+                setTypeface(typeface, Typeface.BOLD)
+            },
+        )
+        row.addView(
+            TextView(this).apply {
+                text = "${profile.activeCameraAddresses.size} camera(s) active in this profile"
+                textSize = 12f
+            },
+        )
+
+        val topButtonRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, dp(4), 0, 0)
+        }
+        topButtonRow.addView(
+            Button(this).apply {
+                text = "Apply"
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                setOnClickListener { applyProfile(profile) }
+            },
+        )
+        topButtonRow.addView(
+            Button(this).apply {
+                text = "Configure"
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                    marginStart = dp(8)
+                }
+                setOnClickListener { openProfile(profile.id) }
+            },
+        )
+        row.addView(topButtonRow)
+
+        val bottomButtonRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, dp(4), 0, 0)
+        }
+        bottomButtonRow.addView(
+            Button(this).apply {
+                text = "Rename"
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                setOnClickListener { promptRenameProfile(profile) }
+            },
+        )
+        bottomButtonRow.addView(
+            Button(this).apply {
+                text = "Delete"
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                    marginStart = dp(8)
+                }
+                setOnClickListener { promptDeleteProfile(profile) }
+            },
+        )
+        row.addView(bottomButtonRow)
+
+        return row
+    }
+
+    private fun openProfile(profileId: String) {
+        startActivity(
+            Intent(this, ProfileActivity::class.java).putExtra(ProfileActivity.EXTRA_PROFILE_ID, profileId),
+        )
+    }
+
+    /** Makes [profile] the one automation is driven from — see [ProfileStore.activateProfile]. */
+    private fun applyProfile(profile: ProfileStore.Profile) {
+        ProfileStore.activateProfile(this, profile.id)
+        refreshProfileList()
+        val count = profile.activeCameraAddresses.size
+        val message = if (count == 0) {
+            "Applied '${profile.name}' — it has no active cameras yet, so nothing will auto-record. Use Configure to add some."
+        } else {
+            "Applied '${profile.name}' — driving automation for $count camera(s)"
+        }
+        Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+    }
+
+    /**
+     * New profile starts from every currently-saved camera, switched on, seeded with the
+     * currently-active profile's settings where it covers the same camera (so a new
+     * profile begins from a known baseline instead of every trigger reset to defaults) —
+     * see [ProfileStore.createProfile]. Jumps straight into [ProfileActivity] afterward
+     * since a brand new profile is exactly when reviewing/adjusting per-camera settings is
+     * most useful.
+     */
+    private fun promptSaveNewProfile() {
+        val cameras = CameraStore.getCameras(this)
+        if (cameras.isEmpty()) {
+            Toast.makeText(this, "Add a camera first", Toast.LENGTH_LONG).show()
+            return
+        }
+        val input = EditText(this).apply { hint = "Profile name (e.g. Road, Gravel race)" }
+        AlertDialog.Builder(this)
+            .setTitle("Create New Profile")
+            .setView(input)
+            .setPositiveButton("Create") { _, _ ->
+                val name = input.text.toString().trim()
+                if (name.isEmpty()) {
+                    Toast.makeText(this, "Enter a profile name", Toast.LENGTH_LONG).show()
+                    return@setPositiveButton
+                }
+                val profile = ProfileStore.createProfile(this, name, seedFromProfileId = ProfileStore.getActiveProfileId(this))
+                refreshProfileList()
+                openProfile(profile.id)
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun promptRenameProfile(profile: ProfileStore.Profile) {
+        val input = EditText(this).apply { setText(profile.name) }
+        AlertDialog.Builder(this)
+            .setTitle("Rename Profile")
+            .setView(input)
+            .setPositiveButton("Rename") { _, _ ->
+                val name = input.text.toString().trim()
+                if (name.isEmpty()) {
+                    Toast.makeText(this, "Enter a profile name", Toast.LENGTH_LONG).show()
+                    return@setPositiveButton
+                }
+                ProfileStore.renameProfile(this, profile.id, name)
+                refreshProfileList()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun promptDeleteProfile(profile: ProfileStore.Profile) {
+        AlertDialog.Builder(this)
+            .setTitle("Delete '${profile.name}'?")
+            .setMessage("This only deletes the saved profile — it doesn't change any camera's current settings.")
+            .setPositiveButton("Delete") { _, _ ->
+                ProfileStore.deleteProfile(this, profile.id)
+                refreshProfileList()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     // --- Scan / discover new cameras ---
@@ -211,6 +411,36 @@ class MainActivity : AppCompatActivity() {
         } else {
             permissionLauncher.launch(requiredPermissions())
         }
+    }
+
+    // --- Data source loss timeout ---
+    //
+    // See AppSettings.getDataSourceLossTimeoutMinutes's doc comment for the full picture:
+    // an app-wide (not per-camera/profile) minutes value Insta360Extension's monitor reads
+    // every tick, so a change here takes effect on the next ~1s tick for any camera
+    // currently recording — no restart, resync, or reapplying a profile needed.
+
+    /**
+     * Explicit Save button rather than saving on every keystroke — a half-typed number
+     * (or a briefly-empty field mid-edit) would otherwise write a bogus value before the
+     * user's done, same reasoning as [CameraConfigActivity][com.example.karooinsta360.camera.CameraConfigActivity]'s
+     * own Save button for a camera's name.
+     */
+    private fun saveDataSourceLossTimeout() {
+        val minutes = dataSourceLossTimeoutInput.text.toString().trim().toIntOrNull()
+        if (minutes == null || minutes < 0) {
+            Toast.makeText(this, "Enter 0 or a positive number of minutes", Toast.LENGTH_LONG).show()
+            dataSourceLossTimeoutInput.setText(AppSettings.getDataSourceLossTimeoutMinutes(this).toString())
+            return
+        }
+        AppSettings.setDataSourceLossTimeoutMinutes(this, minutes)
+        dataSourceLossTimeoutInput.setText(minutes.toString())
+        val message = if (minutes == 0) {
+            "Saved — data source loss will never auto-stop a recording"
+        } else {
+            "Saved — a lost data source will auto-stop its recording after ${minutes}min"
+        }
+        Toast.makeText(this, message, Toast.LENGTH_LONG).show()
     }
 
     // --- Recording start/stop notifications ---

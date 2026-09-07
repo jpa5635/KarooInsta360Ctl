@@ -1,3 +1,5 @@
+import com.android.build.api.variant.impl.VariantOutputImpl
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -11,8 +13,11 @@ android {
         applicationId = "com.example.karooinsta360"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "0.1"
+        // versionCode just needs to keep increasing by 1 each build — it doesn't need to
+        // encode the versionName scheme. versionName itself is 0.1.<build number> rather
+        // than 0.<build number> going forward, per request.
+        versionCode = 10
+        versionName = "0.1.10"
     }
 
     buildTypes {
@@ -38,12 +43,18 @@ android {
 // is just "app-debug.apk"/"app-release.apk" — indistinguishable from any other Android
 // project's default output once it's sitting in a Downloads folder or attached to a
 // GitHub release. Name it after what it actually is instead.
+//
+// `outputFileName` isn't exposed on the public VariantOutput interface (AGP 8.13.2) —
+// only on the impl class — so this cast is required; it's the approach Android's own
+// samples use for renaming APK output, not a hack around the API.
 androidComponents {
     onVariants { variant ->
         variant.outputs.forEach { output ->
-            output.outputFileName.set(
-                "karoo-insta360-${android.defaultConfig.versionName}-${variant.name}.apk",
-            )
+            if (output is VariantOutputImpl) {
+                output.outputFileName.set(
+                    "karoo-insta360-${android.defaultConfig.versionName}-${variant.name}.apk",
+                )
+            }
         }
     }
 }

@@ -1,0 +1,389 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Trigger configuration for one camera within one profile (2026-08-29, build 0.1.9) —
+     moved here from activity_camera_config.xml/CameraConfigActivity per explicit request
+     that triggers belong to the profile, not the camera. See ProfileCameraConfigActivity. -->
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:orientation="vertical"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:padding="24dp">
+
+        <TextView
+            android:id="@+id/profileCameraHeaderText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textStyle="bold"
+            android:textSize="16sp"
+            android:layout_marginBottom="16dp" />
+
+        <!-- ============================= Heart Rate ============================= -->
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Effort Trigger — Heart Rate / Power"
+            android:textStyle="bold"
+            android:layout_marginBottom="4dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textSize="12sp"
+            android:text="Either one, on its own, can start or stop recording — enable both to catch whichever spikes first. Start and stop each have their own value below, so you can (for example) start at 150 bpm but not stop again until it drops under 130 — the gap between them avoids flickering on and off right around one number."
+            android:layout_marginBottom="12dp" />
+
+        <CheckBox
+            android:id="@+id/hrEnabledCheckbox"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Enable Heart Rate trigger"
+            android:layout_marginBottom="8dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textSize="12sp"
+            android:text="Start recording once heart rate rises to or above (bpm):" />
+
+        <EditText
+            android:id="@+id/hrStartThresholdInput"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="e.g. 150"
+            android:inputType="numberDecimal"
+            android:layout_marginBottom="8dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textSize="12sp"
+            android:text="Stop recording once heart rate falls below (bpm):" />
+
+        <EditText
+            android:id="@+id/hrStopThresholdInput"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="e.g. 130"
+            android:inputType="numberDecimal"
+            android:layout_marginBottom="8dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textSize="12sp"
+            android:text="Seconds heart rate must stay at/above the start value before recording begins:" />
+
+        <EditText
+            android:id="@+id/hrStartSecondsInput"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="e.g. 5"
+            android:inputType="number"
+            android:layout_marginBottom="8dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textSize="12sp"
+            android:text="Seconds heart rate must stay below the stop value before recording ends:" />
+
+        <EditText
+            android:id="@+id/hrStopSecondsInput"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="e.g. 30"
+            android:inputType="number"
+            android:layout_marginBottom="20dp" />
+
+        <!-- ================================ Power ================================ -->
+
+        <CheckBox
+            android:id="@+id/powerEnabledCheckbox"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Enable Power trigger"
+            android:layout_marginBottom="8dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textSize="12sp"
+            android:text="Start recording once power rises to or above (watts):" />
+
+        <EditText
+            android:id="@+id/powerStartThresholdInput"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="e.g. 300"
+            android:inputType="numberDecimal"
+            android:layout_marginBottom="8dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textSize="12sp"
+            android:text="Stop recording once power falls below (watts):" />
+
+        <EditText
+            android:id="@+id/powerStopThresholdInput"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="e.g. 320"
+            android:inputType="numberDecimal"
+            android:layout_marginBottom="8dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textSize="12sp"
+            android:text="Seconds power must stay at/above the start value before recording begins:" />
+
+        <EditText
+            android:id="@+id/powerStartSecondsInput"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="e.g. 5"
+            android:inputType="number"
+            android:layout_marginBottom="8dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textSize="12sp"
+            android:text="Seconds power must stay below the stop value before recording ends:" />
+
+        <EditText
+            android:id="@+id/powerStopSecondsInput"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="e.g. 30"
+            android:inputType="number"
+            android:layout_marginBottom="8dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textSize="12sp"
+            android:text="Power's stop check is based on a rolling 3-second average, not an instant reading. Allowed power spikes above the stop value (0-5) while stopping — each spike is tolerated for up to 3 seconds before it cancels the stop and counts as still recording:" />
+
+        <EditText
+            android:id="@+id/powerStopAllowedSpikesInput"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="0-5, e.g. 1"
+            android:inputType="number"
+            android:layout_marginBottom="28dp" />
+
+        <!-- ================================ Speed ================================ -->
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Speed Trigger — independent"
+            android:textStyle="bold"
+            android:layout_marginBottom="4dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textSize="12sp"
+            android:text="Does not combine with Heart Rate/Power — speed can start or stop recording entirely on its own, regardless of effort. Start and stop each have their own value, same as above, entered in whichever unit is selected below. Switching the unit does not convert an already-entered number — re-enter it in the new unit."
+            android:layout_marginBottom="12dp" />
+
+        <CheckBox
+            android:id="@+id/speedEnabledCheckbox"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Enable Speed trigger"
+            android:layout_marginBottom="8dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textSize="12sp"
+            android:text="Speed unit for the values below:" />
+
+        <RadioGroup
+            android:id="@+id/speedUnitGroup"
+            android:orientation="horizontal"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="8dp">
+
+            <RadioButton
+                android:id="@+id/speedUnitMph"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="mph" />
+
+            <RadioButton
+                android:id="@+id/speedUnitKmh"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="km/h" />
+        </RadioGroup>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textSize="12sp"
+            android:text="Start recording once speed rises to or above:" />
+
+        <EditText
+            android:id="@+id/speedStartThresholdInput"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="e.g. 18"
+            android:inputType="numberDecimal"
+            android:layout_marginBottom="8dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textSize="12sp"
+            android:text="Stop recording once speed falls below:" />
+
+        <EditText
+            android:id="@+id/speedStopThresholdInput"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="e.g. 13"
+            android:inputType="numberDecimal"
+            android:layout_marginBottom="8dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textSize="12sp"
+            android:text="Seconds speed must stay at/above the start value before recording begins:" />
+
+        <EditText
+            android:id="@+id/speedStartSecondsInput"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="e.g. 5"
+            android:inputType="number"
+            android:layout_marginBottom="8dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textSize="12sp"
+            android:text="Seconds speed must stay below the stop value before recording ends:" />
+
+        <EditText
+            android:id="@+id/speedStopSecondsInput"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="e.g. 30"
+            android:inputType="number"
+            android:layout_marginBottom="28dp" />
+
+        <!-- ================================ Radar ================================= -->
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Radar Trigger — independent"
+            android:textStyle="bold"
+            android:layout_marginBottom="4dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textSize="12sp"
+            android:text="Starts recording when a vehicle is detected within range behind you; keeps recording as long as any vehicle is still on radar, and stops once none has been detected for the interval below. Requires a compatible radar sensor (e.g. Garmin Varia RTL515/RCT715) paired to the Karoo like any other sensor — turning this on or off has no effect on Heart Rate/Power/Speed, or vice versa. Unlike those three, there's only one distance to set — see below for why."
+            android:layout_marginBottom="12dp" />
+
+        <CheckBox
+            android:id="@+id/radarEnabledCheckbox"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Enable Radar trigger"
+            android:layout_marginBottom="8dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textSize="12sp"
+            android:text="Distance unit for the value below. Switching the unit does not convert an already-entered number — re-enter it in the new unit." />
+
+        <RadioGroup
+            android:id="@+id/radarUnitGroup"
+            android:orientation="horizontal"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="8dp">
+
+            <RadioButton
+                android:id="@+id/radarUnitFeet"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="feet" />
+
+            <RadioButton
+                android:id="@+id/radarUnitMeters"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="meters" />
+        </RadioGroup>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textSize="12sp"
+            android:text="Start recording when the nearest vehicle is within this distance:" />
+
+        <EditText
+            android:id="@+id/radarThresholdInput"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="e.g. 100"
+            android:inputType="numberDecimal"
+            android:layout_marginBottom="8dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textSize="12sp"
+            android:text="Seconds a vehicle must stay within that distance before recording begins (0 = immediately):" />
+
+        <EditText
+            android:id="@+id/radarStartSecondsInput"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="e.g. 0"
+            android:inputType="number"
+            android:layout_marginBottom="8dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textSize="12sp"
+            android:text="Seconds with no vehicle detected (at any distance) before recording ends:" />
+
+        <EditText
+            android:id="@+id/radarStopSecondsInput"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="e.g. 15"
+            android:inputType="number"
+            android:layout_marginBottom="28dp" />
+
+        <Button
+            android:id="@+id/saveProfileCameraConfigButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Save" />
+
+    </LinearLayout>
+</ScrollView>

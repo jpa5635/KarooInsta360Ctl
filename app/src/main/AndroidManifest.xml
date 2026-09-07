@@ -39,29 +39,20 @@
         <activity
             android:name=".camera.CameraConfigActivity"
             android:exported="false"
-            android:label="Camera Settings" />
+            android:label="Camera" />
 
-        <!-- Invisible trampoline for the Start/Stop button on the Karoo Control Center
-             notification (see Insta360Extension.updateControlCenterNotification and
-             ControlCenterActionActivity's own doc comment). exported=true + the two
-             actions below are required so karoo-ext's SystemNotification.actionIntent
-             (an implicit intent built from just an action string) can resolve to this
-             activity; category DEFAULT is required for any implicit intent started via
-             startActivity() to match at all. Themed fully transparent/no-history so it
-             never actually shows a window — see styles.xml. -->
+        <!-- Configuration profiles (2026-08-29, build 0.1.9) — trigger settings now live
+             entirely here instead of on each camera; see CameraStore/ProfileStore's doc
+             comments. -->
         <activity
-            android:name=".ControlCenterActionActivity"
-            android:exported="true"
-            android:excludeFromRecents="true"
-            android:noHistory="true"
-            android:theme="@style/Theme.Transparent.NoDisplay"
-            tools:ignore="ExportedActivity">
-            <intent-filter>
-                <action android:name="com.example.karooinsta360.action.START_ALL" />
-                <action android:name="com.example.karooinsta360.action.STOP_ALL" />
-                <category android:name="android.intent.category.DEFAULT" />
-            </intent-filter>
-        </activity>
+            android:name=".camera.ProfileActivity"
+            android:exported="false"
+            android:label="Profile Cameras" />
+
+        <activity
+            android:name=".camera.ProfileCameraConfigActivity"
+            android:exported="false"
+            android:label="Camera Triggers" />
 
         <!-- Handles a tap on the "Recording Control" ride-page data field (see
              RecordingControlDataType.kt) — its RemoteViews click targets this via

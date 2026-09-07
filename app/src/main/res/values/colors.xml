@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Used for the InRideAlert dispatched on a genuine recording start/stop — see
+         Insta360Extension's connectionListener. Green/red-ish so "started" and "stopped"
+         read at a glance without needing to read the text. -->
+    <color name="recording_started_bg">#2E7D32</color>
+    <color name="recording_stopped_bg">#455A64</color>
+    <color name="recording_alert_text">#FFFFFF</color>
+</resources>

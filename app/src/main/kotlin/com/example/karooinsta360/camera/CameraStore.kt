@@ -7,28 +7,59 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * Persisted list of saved cameras, each with its own independent per-metric trigger
- * configuration (heart rate / power / speed / radar — each can be independently enabled,
- * with its own threshold and start/stop sustain durations, with no effect on whether any
- * of the others are enabled).
+ * Persisted list of saved cameras — **identity only** (address + display name).
+ *
+ * **Changed (2026-08-29, build 0.1.9):** every camera used to carry its own independent
+ * heart-rate/power/speed/radar trigger configuration directly on [CameraConfig]. Per
+ * explicit request ("all of the triggers should be configured in the profile, not under
+ * the camera settings"), that configuration has moved entirely to [ProfileStore] — a
+ * camera is now just a Bluetooth address and a name; which of its triggers are active, and
+ * with what values, is entirely a property of whichever profile currently has that camera
+ * switched on (see [ProfileStore.Profile.activeCameraAddresses]/
+ * [ProfileStore.Profile.cameraSettings]). See [migrateLegacyTriggersToProfileIfNeeded] for
+ * how a camera's settings from before this change are preserved rather than silently lost.
  *
  * Stored as a small JSON blob in SharedPreferences (hand-rolled with [org.json], which
  * ships with Android — no extra dependency, and simpler than wiring up the Kotlin
  * serialization compiler plugin for a config this small). Read from
  * [com.example.karooinsta360.extension.Insta360Extension] (drives the auto-trigger) and
- * from [MainActivity]/[CameraConfigActivity] (list + edit UI); both processes... well,
- * same process, same as [com.example.karooinsta360.connection.Insta360ConnectionManager]
+ * from [MainActivity][com.example.karooinsta360.MainActivity]/[CameraConfigActivity]/
+ * [ProfileActivity]/[ProfileCameraConfigActivity] (list + edit UI); both processes...
+ * well, same process, same as [com.example.karooinsta360.connection.Insta360ConnectionManager]
  * — see its doc comment for why that matters here too.
  */
 object CameraStore {
     private const val PREFS_NAME = "insta360_cameras"
     private const val KEY_CAMERAS = "cameras_json"
+    private const val KEY_MIGRATED_LEGACY_TRIGGERS = "migrated_legacy_triggers_to_profile_v1"
 
     enum class Metric(val label: String, val unit: String, val dataTypeId: String) {
         HEART_RATE("Heart Rate", "bpm", DataType.Type.HEART_RATE),
         POWER("Power", "W", DataType.Type.POWER),
-        SPEED("Speed", "m/s", DataType.Type.SPEED),
-        RADAR("Radar (vehicle approaching)", "ft", DataType.Type.RADAR),
+        SPEED("Speed", "mph or km/h", DataType.Type.SPEED),
+        RADAR("Radar (vehicle approaching)", "ft or m", DataType.Type.RADAR),
+    }
+
+    /**
+     * Unit a profile's Speed trigger threshold is entered/displayed in (see
+     * [ProfileStore.ProfileCameraSettings.speedUnit]). [metersPerSecondPerUnit] converts a
+     * threshold value in this unit to the Karoo's raw m/s speed reading, the same way
+     * [DistanceUnit.metersPerUnit] does for Radar.
+     */
+    enum class SpeedUnit(val label: String, val metersPerSecondPerUnit: Double) {
+        MPH("mph", 0.44704),
+        KMH("km/h", 0.277778),
+    }
+
+    /**
+     * Unit a profile's Radar trigger distance is entered/displayed in (see
+     * [ProfileStore.ProfileCameraSettings.radarUnit]). [metersPerUnit] converts a distance
+     * in this unit to meters, matching the units karoo-ext's RADAR data type reports
+     * target range in.
+     */
+    enum class DistanceUnit(val label: String, val metersPerUnit: Double) {
+        FEET("ft", 0.3048),
+        METERS("m", 1.0),
     }
 
     data class MetricTrigger(
@@ -39,47 +70,20 @@ object CameraStore {
         // Rate/Power/Speed: start fires once the live value rises to/above
         // [startThreshold] (sustained [startSeconds]); stop fires once it falls below
         // [stopThreshold] (sustained [stopSeconds]). For Radar, [startThreshold] is the
-        // trigger distance in feet and [stopThreshold] is unused — see
-        // [CameraConfig.radar] and [com.example.karooinsta360.extension.Insta360Extension]
-        // for why its stop side isn't a threshold at all.
+        // trigger distance and [stopThreshold] is unused — see
+        // [com.example.karooinsta360.extension.Insta360Extension] for why its stop side
+        // isn't a threshold at all.
         val startThreshold: Float = 0f,
         val stopThreshold: Float = 0f,
         val startSeconds: Int = 5,
         val stopSeconds: Int = 30,
     )
 
+    /** A saved camera's identity — nothing about its trigger behavior lives here any more. */
     data class CameraConfig(
         val address: String,
         val name: String,
-        val heartRate: MetricTrigger = MetricTrigger(),
-        val power: MetricTrigger = MetricTrigger(),
-        val speed: MetricTrigger = MetricTrigger(),
-        // Radar is an event, not a gradually-changing reading like the other three — a
-        // car is either behind you or it isn't, and it isn't behind you for long. Threshold
-        // is a distance in FEET to the nearest tracked target (100 ft default — start
-        // recording once something's actually close, not merely somewhere in the radar's
-        // full detection range). Defaults otherwise reflect the same "it's a brief event"
-        // reasoning: start immediately (no sustained-duration debounce — by the time you
-        // waited a few seconds the car could already be past you), and a 15s stop grace
-        // period so a brief gap between cars in a stream of traffic doesn't chop one
-        // recording into several (see runCameraMonitor's radar latch for how the stop
-        // side works — it's "no vehicle on radar at all," not "moved back past 100 ft").
-        val radar: MetricTrigger = MetricTrigger(startThreshold = 100f, stopThreshold = 100f, startSeconds = 0, stopSeconds = 15),
     ) {
-        fun trigger(metric: Metric): MetricTrigger = when (metric) {
-            Metric.HEART_RATE -> heartRate
-            Metric.POWER -> power
-            Metric.SPEED -> speed
-            Metric.RADAR -> radar
-        }
-
-        fun withTrigger(metric: Metric, trigger: MetricTrigger): CameraConfig = when (metric) {
-            Metric.HEART_RATE -> copy(heartRate = trigger)
-            Metric.POWER -> copy(power = trigger)
-            Metric.SPEED -> copy(speed = trigger)
-            Metric.RADAR -> copy(radar = trigger)
-        }
-
         /** Short "Name (AA:BB:CC:DD:EE:FF)" label used throughout the UI and logs. */
         val displayLabel: String get() = "$name ($address)"
     }
@@ -115,52 +119,14 @@ object CameraStore {
         prefs(context).edit().putString(KEY_CAMERAS, array.toString()).apply()
     }
 
-    private fun triggerToJson(t: MetricTrigger) = JSONObject().apply {
-        put("enabled", t.enabled)
-        put("startThreshold", t.startThreshold.toDouble())
-        put("stopThreshold", t.stopThreshold.toDouble())
-        put("startSeconds", t.startSeconds)
-        put("stopSeconds", t.stopSeconds)
-    }
-
-    private fun triggerFromJson(o: JSONObject?): MetricTrigger = if (o == null) {
-        MetricTrigger()
-    } else {
-        // Cameras saved before 2026-08-27 have a single "threshold" key, back when the
-        // same number was used for both start and stop. Migrate it to both new fields so
-        // an old config keeps behaving exactly as it did (falls back to 0 — same as
-        // MetricTrigger()'s own default — if even that key is missing).
-        val legacy = if (o.has("threshold")) o.optDouble("threshold", 0.0) else null
-        MetricTrigger(
-            enabled = o.optBoolean("enabled", false),
-            startThreshold = o.optDouble("startThreshold", legacy ?: 0.0).toFloat(),
-            stopThreshold = o.optDouble("stopThreshold", legacy ?: 0.0).toFloat(),
-            startSeconds = o.optInt("startSeconds", 5),
-            stopSeconds = o.optInt("stopSeconds", 30),
-        )
-    }
-
     private fun cameraToJson(c: CameraConfig) = JSONObject().apply {
         put("address", c.address)
         put("name", c.name)
-        put("heartRate", triggerToJson(c.heartRate))
-        put("power", triggerToJson(c.power))
-        put("speed", triggerToJson(c.speed))
-        put("radar", triggerToJson(c.radar))
     }
 
     private fun cameraFromJson(o: JSONObject) = CameraConfig(
         address = o.getString("address"),
         name = o.optString("name").ifBlank { o.getString("address") },
-        heartRate = triggerFromJson(o.optJSONObject("heartRate")),
-        power = triggerFromJson(o.optJSONObject("power")),
-        speed = triggerFromJson(o.optJSONObject("speed")),
-        // No "radar" key means an older saved camera from before this trigger existed —
-        // triggerFromJson(null) falls back to MetricTrigger()'s generic defaults (enabled
-        // = false, startSeconds = 5, stopSeconds = 30) rather than CameraConfig's radar-
-        // specific ones above, but since it's disabled either way that's harmless; only
-        // matters if the checkbox is ever turned on without also touching the numbers.
-        radar = triggerFromJson(o.optJSONObject("radar")),
     )
 
     fun registerChangeListener(context: Context, listener: SharedPreferences.OnSharedPreferenceChangeListener) {
@@ -169,5 +135,90 @@ object CameraStore {
 
     fun unregisterChangeListener(context: Context, listener: SharedPreferences.OnSharedPreferenceChangeListener) {
         prefs(context).unregisterOnSharedPreferenceChangeListener(listener)
+    }
+
+    /**
+     * One-time migration (2026-08-29, build 0.1.9). Before this version, [cameraToJson]
+     * wrote each camera's trigger settings (heartRate/power/speed/radar/etc.) right into
+     * this same JSON blob, alongside address/name. [cameraFromJson] above no longer reads
+     * those keys — they're simply invisible to [getCameras] now — but they're still
+     * sitting in the raw stored string for anyone who saved a camera before this build,
+     * until something next calls [saveCameras] and rewrites it without them.
+     *
+     * Runs once (guarded by [KEY_MIGRATED_LEGACY_TRIGGERS]): parses that raw JSON directly
+     * — bypassing [cameraFromJson] specifically so it can still see the old fields — and,
+     * if there's any actually-enabled trigger data in there AND no [ProfileStore] profile
+     * exists yet (an upgrade from before profiles existed at all, build 0.1.7 or earlier;
+     * an 0.1.8 user already has their own real profiles and this deliberately leaves those
+     * alone), packages it into one new "Migrated Settings" profile — covering exactly the
+     * cameras that had real settings, switched on — and makes it the active profile. Without
+     * this, upgrading straight to 0.1.9 would silently discard real, ride-tested trigger
+     * numbers the moment CameraConfig stopped carrying them.
+     *
+     * Called from both [com.example.karooinsta360.MainActivity.onCreate] and
+     * [com.example.karooinsta360.extension.Insta360Extension.onCreate] — whichever the
+     * Karoo happens to start first — so migration has definitely already happened by the
+     * time either one needs profile data, regardless of launch order.
+     */
+    fun migrateLegacyTriggersToProfileIfNeeded(context: Context) {
+        val p = prefs(context)
+        if (p.getBoolean(KEY_MIGRATED_LEGACY_TRIGGERS, false)) return
+        p.edit().putBoolean(KEY_MIGRATED_LEGACY_TRIGGERS, true).apply()
+
+        // An 0.1.8 user already has real profiles of their own — don't second-guess them
+        // by conjuring up an extra one from whatever old per-camera fields happen to still
+        // be sitting in the raw JSON underneath.
+        if (ProfileStore.getProfiles(context).isNotEmpty()) return
+
+        val json = p.getString(KEY_CAMERAS, null) ?: return
+        val settings: Map<String, ProfileStore.ProfileCameraSettings> = try {
+            val array = JSONArray(json)
+            (0 until array.length()).mapNotNull { i ->
+                val o = array.getJSONObject(i)
+                val address = o.optString("address").ifBlank { null } ?: return@mapNotNull null
+                val hr = o.optJSONObject("heartRate")
+                val power = o.optJSONObject("power")
+                val speed = o.optJSONObject("speed")
+                val radar = o.optJSONObject("radar")
+                val hasAnyEnabled = listOf(hr, power, speed, radar).any { it?.optBoolean("enabled", false) == true }
+                if (!hasAnyEnabled) return@mapNotNull null
+                address to ProfileStore.ProfileCameraSettings(
+                    heartRate = legacyTriggerFromJson(hr),
+                    power = legacyTriggerFromJson(power),
+                    powerStopAllowedSpikes = o.optInt("powerStopAllowedSpikes", 0).coerceIn(0, 5),
+                    speed = legacyTriggerFromJson(speed),
+                    speedUnit = runCatching { SpeedUnit.valueOf(o.optString("speedUnit")) }.getOrDefault(SpeedUnit.MPH),
+                    radar = legacyTriggerFromJson(radar),
+                    radarUnit = runCatching { DistanceUnit.valueOf(o.optString("radarUnit")) }.getOrDefault(DistanceUnit.FEET),
+                )
+            }.toMap()
+        } catch (e: Exception) {
+            return
+        }
+        if (settings.isEmpty()) return
+
+        val profile = ProfileStore.Profile(
+            id = ProfileStore.newProfileId(),
+            name = "Migrated Settings",
+            activeCameraAddresses = settings.keys,
+            cameraSettings = settings,
+        )
+        ProfileStore.saveProfile(context, profile)
+        ProfileStore.setActiveProfileId(context, profile.id)
+    }
+
+    private fun legacyTriggerFromJson(o: JSONObject?): MetricTrigger = if (o == null) {
+        MetricTrigger()
+    } else {
+        // Cameras saved before 2026-08-27 have a single "threshold" key, back when the
+        // same number was used for both start and stop.
+        val legacy = if (o.has("threshold")) o.optDouble("threshold", 0.0) else null
+        MetricTrigger(
+            enabled = o.optBoolean("enabled", false),
+            startThreshold = o.optDouble("startThreshold", legacy ?: 0.0).toFloat(),
+            stopThreshold = o.optDouble("stopThreshold", legacy ?: 0.0).toFloat(),
+            startSeconds = o.optInt("startSeconds", 5),
+            stopSeconds = o.optInt("stopSeconds", 30),
+        )
     }
 }

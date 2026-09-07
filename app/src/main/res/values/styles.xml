@@ -1,18 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
 
-    <!-- ControlCenterActionActivity's theme: it exists only to receive a click and
-         immediately close itself (see that class's doc comment), so it must never
-         actually draw a visible window — otherwise tapping "Start Recording" in Control
-         Center would look like the whole app flashing open for an instant. -->
-    <style name="Theme.Transparent.NoDisplay" parent="Theme.AppCompat.NoActionBar">
-        <item name="android:windowIsTranslucent">true</item>
-        <item name="android:windowBackground">@android:color/transparent</item>
-        <item name="android:windowContentOverlay">@null</item>
-        <item name="android:windowNoTitle">true</item>
-        <item name="android:windowAnimationStyle">@null</item>
-        <item name="android:windowIsFloating">false</item>
-        <item name="android:backgroundDimEnabled">false</item>
-    </style>
+    <!-- Theme.Transparent.NoDisplay used to exist here for ControlCenterActionActivity's
+         invisible trampoline — removed (2026-08-29) along with that activity, since the
+         Karoo Control Center Start/Stop control it served is hidden for the whole
+         duration of a ride and so was never usable for its actual purpose. See the
+         README's 2026-08-29 entry. -->
 
 </resources>

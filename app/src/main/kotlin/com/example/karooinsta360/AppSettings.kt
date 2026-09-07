@@ -1,7 +1,6 @@
 package com.example.karooinsta360
 
 import android.content.Context
-import android.content.SharedPreferences
 
 /**
  * Small app-wide (not per-camera) preferences — kept separate from
@@ -11,7 +10,8 @@ import android.content.SharedPreferences
 object AppSettings {
     private const val PREFS_NAME = "insta360_app_settings"
     private const val KEY_NOTIFY_ON_RECORDING_CHANGE = "notify_on_recording_change"
-    private const val KEY_CONTROL_CENTER_CONTROL = "control_center_recording_control"
+    private const val KEY_DATA_SOURCE_LOSS_TIMEOUT_MINUTES = "data_source_loss_timeout_minutes"
+    private const val DEFAULT_DATA_SOURCE_LOSS_TIMEOUT_MINUTES = 10
 
     /** Post a status-bar notification whenever any saved camera starts or stops recording. */
     fun isRecordingNotificationEnabled(context: Context): Boolean =
@@ -22,31 +22,31 @@ object AppSettings {
     }
 
     /**
-     * Keep a persistent Start/Stop control visible in the Karoo's own Control Center
-     * (via [io.hammerhead.karooext.models.SystemNotification], not a regular Android
-     * notification — see [com.example.karooinsta360.extension.Insta360Extension]). Off
-     * by default since, unlike the momentary start/stop notification above, this one
-     * sits in Control Center the whole time any camera is saved.
+     * **Added (2026-08-30)** — app-wide (not per-camera/profile) safety-net setting read
+     * by [com.example.karooinsta360.extension.Insta360Extension.runCameraMonitor].
+     *
+     * Heart rate/power/speed/radar trigger latches decide start/stop from the *last known
+     * value* of their metric, held indefinitely through a momentary sensor dropout on
+     * purpose (see that class's `latestHr` doc comment) — a flaky strap losing signal for
+     * a couple of seconds shouldn't be able to reset a sustained-threshold timer. Taken to
+     * its extreme, though, that same held-over value means a data source that's gone for
+     * good (a strap left at home, a dead sensor battery, a camera's radar losing its own
+     * connection) never satisfies a stop condition either — the last reading before it
+     * dropped out just sits there, and a recording that latch is holding open never ends.
+     *
+     * This is how long (minutes) a specific trigger's data source can go without a fresh
+     * reading before that trigger is treated as having lost its source entirely and
+     * released — independent of whatever value it was last holding. Only the latch(es)
+     * whose own metric actually went stale are affected; another trigger on the same
+     * camera that's still getting live data (e.g. speed, while heart rate's strap died)
+     * is unaffected and can keep the recording going on its own. 0 disables this
+     * entirely, restoring the original "hold forever" behavior.
      */
-    fun isControlCenterControlEnabled(context: Context): Boolean =
-        prefs(context).getBoolean(KEY_CONTROL_CENTER_CONTROL, false)
+    fun getDataSourceLossTimeoutMinutes(context: Context): Int =
+        prefs(context).getInt(KEY_DATA_SOURCE_LOSS_TIMEOUT_MINUTES, DEFAULT_DATA_SOURCE_LOSS_TIMEOUT_MINUTES)
 
-    fun setControlCenterControlEnabled(context: Context, enabled: Boolean) {
-        prefs(context).edit().putBoolean(KEY_CONTROL_CENTER_CONTROL, enabled).apply()
-    }
-
-    /**
-     * Lets [com.example.karooinsta360.extension.Insta360Extension] react immediately
-     * when [isControlCenterControlEnabled] is flipped in [MainActivity] — without this,
-     * turning that setting on wouldn't post the Control Center notification until the
-     * next unrelated recording-state change happened to fire.
-     */
-    fun registerChangeListener(context: Context, listener: SharedPreferences.OnSharedPreferenceChangeListener) {
-        prefs(context).registerOnSharedPreferenceChangeListener(listener)
-    }
-
-    fun unregisterChangeListener(context: Context, listener: SharedPreferences.OnSharedPreferenceChangeListener) {
-        prefs(context).unregisterOnSharedPreferenceChangeListener(listener)
+    fun setDataSourceLossTimeoutMinutes(context: Context, minutes: Int) {
+        prefs(context).edit().putInt(KEY_DATA_SOURCE_LOSS_TIMEOUT_MINUTES, minutes.coerceAtLeast(0)).apply()
     }
 
     private fun prefs(context: Context) =

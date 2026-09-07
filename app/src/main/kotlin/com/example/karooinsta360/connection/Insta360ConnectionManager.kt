@@ -37,13 +37,32 @@ import java.util.concurrent.CopyOnWriteArraySet
 object Insta360ConnectionManager {
     private const val TAG = "Insta360ConnMgr"
     private const val SCAN_RETRY_DELAY_MS = 5_000L
-    private const val NOTIFICATION_CHANNEL_ID = "recording_state"
+    // "_hi" because this used to be "recording_state" at IMPORTANCE_LOW — see
+    // ensureNotificationChannel's doc comment for why the ID had to change, not just
+    // the importance value, to actually fix anything for an existing install.
+    private const val NOTIFICATION_CHANNEL_ID = "recording_state_hi"
 
     @Volatile private var notificationChannelCreated = false
 
     interface Listener {
         /** Fired whenever a camera's connected/recording state changes, or the saved list changes. */
         fun onCameraStateChanged(address: String) {}
+
+        /**
+         * Fired only for a genuine start/stop action — same event, same call sites
+         * ([startCapture]/[stopCapture]), as the status-bar notification posted by
+         * [notifyRecordingChanged] below; NOT fired from connect/disconnect resetting the
+         * flag to a known state. Added (2026-08-29) so [Insta360Extension] can also raise
+         * a karoo-ext [io.hammerhead.karooext.models.InRideAlert] for this — unlike a
+         * plain Android notification, that's a native Karoo UI element guaranteed to
+         * actually render on screen, addressing "the status-bar notification doesn't
+         * seem to end up anywhere I can find it" independently of whatever Karoo does or
+         * doesn't do with regular Android notifications for a sideloaded app.
+         * [Insta360ConnectionManager] itself has no [io.hammerhead.karooext.KarooSystemService]
+         * to dispatch through — only the extension does — hence this being a listener
+         * callback rather than something done directly here.
+         */
+        fun onRecordingChanged(address: String, recording: Boolean) {}
     }
 
     data class CameraState(
@@ -115,21 +134,38 @@ object Insta360ConnectionManager {
         automationPaused[address] = true
     }
 
-    /**
-     * [CameraConfigActivity] calls this in `onPause()` to hand a camera back to
-     * automation when its screen closes. [startAllCameras]/[stopAllCameras] (Control
-     * Center, the ride-page tile, the controller-button BonusAction) also pause on every
-     * camera they touch, for the same reason `CameraConfigActivity` does — but unlike
-     * `CameraConfigActivity`, those three have no "screen closes" moment to resume from,
-     * so their pause is left in place rather than being cleared automatically. That's no
-     * longer the thing keeping a manually-started recording safe, though — [RecordingOwner]
-     * is: a leftover pause only blocks the monitor from *starting* a recording it thinks
-     * should be running, never from *stopping* one it doesn't own, so there's no
-     * correctness reason to reopen Configure just to "release" a camera anymore, only a
-     * convenience one (silencing the automatic triggers again on this camera sooner).
-     */
+    /** [CameraConfigActivity] calls this in `onPause()` to hand a camera back to automation when its screen closes. */
     fun resumeAutomation(address: String) {
         automationPaused.remove(address)
+    }
+
+    /**
+     * Like [pauseAutomation], but clears itself after [durationMs] instead of waiting for
+     * an explicit [resumeAutomation] call — used by [stopAllCameras], which (unlike
+     * [CameraConfigActivity]) has no "screen closes" moment of its own to resume from.
+     *
+     * **Fixed (2026-08-29):** [startAllCameras]/[stopAllCameras] both used to call the
+     * indefinite [pauseAutomation] instead, on the theory that they needed the same
+     * protection `CameraConfigActivity` gives itself. That was true before recording
+     * ownership tracking existed, but became actively harmful once it landed: any single
+     * ride-page-tile/BonusAction tap left that camera's automation paused
+     * *forever*, silently, since nothing was left to ever call [resumeAutomation] for it —
+     * the automatic heart-rate/power/speed/radar triggers would just stop responding to
+     * that camera until someone happened to open and close its Configure screen. That's
+     * what "triggers stopped working after I started and stopped a recording" was.
+     *
+     * With [RecordingOwner] now the thing permanently protecting a manually-started
+     * recording from being auto-stopped, [startAllCameras] doesn't need to pause at all
+     * (there's nothing for it to protect against — see its doc comment). [stopAllCameras]
+     * still needs *something*: right after a manual Stop, if the automatic trigger
+     * condition is still independently true, the monitor's very next ~1s tick would
+     * otherwise see "should be recording, isn't" and immediately start it right back up.
+     * That only needs to survive one poll tick, though, not last indefinitely — hence a
+     * short, self-clearing pause instead of a permanent one.
+     */
+    fun pauseAutomationBriefly(address: String, durationMs: Long = 3_000L) {
+        automationPaused[address] = true
+        handler.postDelayed({ automationPaused.remove(address) }, durationMs)
     }
 
     fun isAutomationPaused(address: String): Boolean = automationPaused[address] == true
@@ -144,41 +180,41 @@ object Insta360ConnectionManager {
 
     /**
      * Starts every saved, connected, not-already-recording camera. Used by the
-     * "act on everything at once" manual overrides — the Karoo Control Center
-     * notification, the tappable ride-page tile, and the controller-button BonusAction —
-     * none of which have a way to pick out one specific camera from a single tap/press.
+     * "act on everything at once" manual overrides — the tappable ride-page tile and the
+     * controller-button BonusAction — neither of which has a way to pick out one specific
+     * camera from a single tap/press. (The Karoo Control Center notification used to be a
+     * third such surface — removed 2026-08-29 since Control Center is hidden for the
+     * whole duration of any ride, making it useless for the in-ride case this app cares
+     * about; see the README.)
      *
-     * Calls [pauseAutomation] on every camera it actually starts, for the exact same
-     * reason [CameraConfigActivity] does: without it, [Insta360Extension]'s monitor would
-     * see its own trigger conditions still unmet on its very next ~1s poll tick and
-     * immediately call [stopCapture] again — which is exactly what "a manual Start
-     * immediately stops right after" looks like, and is only *not* an issue for
-     * `CameraConfigActivity`'s own manual buttons because that screen already
-     * pauses/resumes automation around its whole visible lifetime. These three surfaces
-     * have no such lifetime (a single tap, not an open screen) — see [resumeAutomation]'s
-     * doc comment for how a camera gets handed back to automation afterwards.
+     * Doesn't pause automation at all — doesn't need to. [startCapture] here passes
+     * [RecordingOwner.MANUAL], and [Insta360Extension]'s monitor only ever stops a
+     * recording it owns itself ([RecordingOwner.AUTOMATIC]), so there's no tick on which
+     * it would try to reverse this regardless of pause state. (There used to be a
+     * [pauseAutomation] call here, before ownership tracking existed — see
+     * [pauseAutomationBriefly]'s doc comment for why that turned into a bug.)
      */
     fun startAllCameras(context: Context) {
         CameraStore.getCameras(context).forEach { cfg ->
             if (isConnected(cfg.address) && !isRecording(cfg.address)) {
-                pauseAutomation(cfg.address)
-                startCapture(cfg.address, RecordingOwner.MANUAL)
+                startCapture(cfg.address, RecordingOwner.MANUAL, reason = "manual start-all (ride-page tile / BonusAction)")
             }
         }
     }
 
     /**
-     * Stops every saved camera currently recording. See [startAllCameras] — pauses
-     * automation on every camera it actually stops for the mirror-image reason: left
-     * unpaused, a camera whose auto-trigger condition is still true would get an
-     * immediate automatic [startCapture] right back on the monitor's next tick, which
-     * would look like "tapped Stop and it just started recording again."
+     * Stops every saved camera currently recording. Unlike [startAllCameras], this still
+     * needs a brief pause (see [pauseAutomationBriefly]): stopping clears ownership back
+     * to [RecordingOwner.NONE], so if the automatic trigger condition is still
+     * independently true, the monitor's very next ~1s tick would otherwise read that as
+     * "should be recording, isn't" and immediately start it right back up — "tapped Stop
+     * and it just started recording again."
      */
     fun stopAllCameras(context: Context) {
         CameraStore.getCameras(context).forEach { cfg ->
             if (isRecording(cfg.address)) {
-                pauseAutomation(cfg.address)
-                stopCapture(cfg.address)
+                pauseAutomationBriefly(cfg.address)
+                stopCapture(cfg.address, reason = "manual stop-all (ride-page tile / BonusAction)")
             }
         }
     }
@@ -209,32 +245,71 @@ object Insta360ConnectionManager {
     }
 
     /**
+     * Forces a fresh connection attempt for a saved camera — the "Reconnect" button on
+     * each camera's row in `MainActivity`'s camera list, added (2026-08-29) for "sometimes
+     * the timing of the power between the computer and camera don't match." (Originally
+     * placed on `CameraConfigActivity`'s screen instead; moved to the main camera list the
+     * same day so it's reachable without opening Configure first.)
+     *
+     * That timing mismatch (e.g. the Karoo powers on and starts trying to connect before
+     * the camera has finished booting, or vice versa) can leave a [Insta360BleClient] in
+     * [clients] that never resolves to either `onConnected()` or `onDisconnected()` — a
+     * GATT connect call that just never calls back. [connectToSaved]'s guard,
+     * `if (isConnected(address) || clients.containsKey(address)) return`, means that once
+     * a camera is in that stuck state, nothing will ever retry it: it's not connected (so
+     * the UI correctly shows "Disconnected"), but it *is* still in [clients], so every
+     * automatic retry from [retryLater] just sees the stale entry and gives up again
+     * without lifting a finger. Previously the only fix was force-closing the app so
+     * process death cleared [clients] from scratch.
+     *
+     * [disconnect] tears down and removes whatever's there (a stuck client, a genuinely
+     * connected one, or nothing at all — safe either way), then [connectToSaved] starts
+     * a genuinely new attempt now that [clients] no longer blocks it.
+     */
+    fun reconnect(context: Context, address: String) {
+        appContext = context.applicationContext
+        disconnect(address)
+        notifyChanged(address)
+        connectToSaved(address)
+    }
+
+    /**
      * [owner] records who's responsible for the recording this starts, so
      * [Insta360Extension]'s monitor knows later whether it's allowed to stop it again —
      * see [RecordingOwner]. Callers: the monitor itself passes [RecordingOwner.AUTOMATIC];
-     * everything else — `CameraConfigActivity`'s Start button, [startAllCameras] (Control
-     * Center/ride-page tile/BonusAction) — passes [RecordingOwner.MANUAL].
+     * everything else — `CameraConfigActivity`'s Start button, [startAllCameras] (ride-page
+     * tile/BonusAction) — passes [RecordingOwner.MANUAL].
+     *
+     * [reason] (added 2026-08-29) is a short human-readable description of *why* this call
+     * was made — e.g. the specific latch/values that crossed threshold, or "manual start
+     * button" — logged on both the success and the "ignored — not connected" path so the
+     * extension-layer "why we decided to start" and this layer's "what actually happened"
+     * can be correlated from logcat alone, without cross-referencing timestamps between two
+     * unrelated-looking log lines.
      */
-    fun startCapture(address: String, owner: RecordingOwner) {
+    fun startCapture(address: String, owner: RecordingOwner, reason: String = "unspecified") {
         val client = clients[address]
         if (client == null || !isConnected(address)) {
-            Log.w(TAG, "startCapture($address) ignored — not connected")
+            Log.w(TAG, "startCapture($address) IGNORED — not connected (reason: $reason)")
             return
         }
         client.startCapture()
         setRecording(address, true, owner)
-        notifyRecordingChanged(address, recording = true)
+        Log.i(TAG, "startCapture($address) SENT — owner=$owner reason=$reason")
+        onGenuineRecordingAction(address, recording = true)
     }
 
-    fun stopCapture(address: String) {
+    /** See [startCapture]'s doc comment for what [reason] is and why it's here. */
+    fun stopCapture(address: String, reason: String = "unspecified") {
         val client = clients[address]
         if (client == null || !isConnected(address)) {
-            Log.w(TAG, "stopCapture($address) ignored — not connected")
+            Log.w(TAG, "stopCapture($address) IGNORED — not connected (reason: $reason)")
             return
         }
         client.stopCapture()
         setRecording(address, false)
-        notifyRecordingChanged(address, recording = false)
+        Log.i(TAG, "stopCapture($address) SENT — reason=$reason")
+        onGenuineRecordingAction(address, recording = false)
     }
 
     // No longer wired to any button — see the 2026-08-27 README entry. On the X4 Air,
@@ -321,14 +396,23 @@ object Insta360ConnectionManager {
     }
 
     /**
-     * Posts a status-bar notification for a genuine start/stop action — called only from
-     * [startCapture]/[stopCapture] themselves, deliberately NOT from [setRecording] in
-     * general, since that's also called from connect/disconnect handling below just to
-     * reset the flag to a known state (not an actual "recording changed" event; posting
-     * from there would fire a false "stopped" notification every time a camera merely
-     * reconnects). Silently does nothing if the user hasn't turned this on, or (Android
-     * 13+) hasn't granted notification permission — this is a nice-to-have, never worth
-     * crashing or logging an error over.
+     * The single call site for "a genuine start/stop action just happened" — called only
+     * from [startCapture]/[stopCapture] themselves, deliberately NOT from [setRecording]
+     * in general, since that's also called from connect/disconnect handling below just to
+     * reset the flag to a known state (not an actual "recording changed" event; firing
+     * from there would announce a false "stopped" every time a camera merely reconnects).
+     * Fans out to both the status-bar notification and [Listener.onRecordingChanged].
+     */
+    private fun onGenuineRecordingAction(address: String, recording: Boolean) {
+        notifyRecordingChanged(address, recording)
+        listeners.forEach { it.onRecordingChanged(address, recording) }
+    }
+
+    /**
+     * Posts a status-bar notification for a genuine start/stop action. Silently does
+     * nothing if the user hasn't turned this on, or (Android 13+) hasn't granted
+     * notification permission — this is a nice-to-have, never worth crashing or logging
+     * an error over.
      */
     private fun notifyRecordingChanged(address: String, recording: Boolean) {
         val context = appContext ?: return
@@ -347,7 +431,7 @@ object Insta360ConnectionManager {
             .setSmallIcon(R.drawable.ic_extension)
             .setContentTitle(if (recording) "Recording started" else "Recording stopped")
             .setContentText(name)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_STATUS)
             .setAutoCancel(true)
             .build()
@@ -356,13 +440,36 @@ object Insta360ConnectionManager {
         notificationManager.notify(address.hashCode(), notification)
     }
 
+    /**
+     * **Fixed (2026-08-29) — the recording start/stop notification wasn't showing up
+     * during a ride.** This channel used to be `IMPORTANCE_LOW`/`PRIORITY_LOW`, which on
+     * Android means "sits silently in the notification shade, no heads-up banner." That's
+     * invisible by design behind whatever fullscreen ride page is on screen — there's no
+     * shade to pull down mid-ride the way there is on a phone. Bumped to
+     * `IMPORTANCE_HIGH`/`PRIORITY_HIGH` so it's a heads-up notification that actually
+     * banners on top of the current screen instead.
+     *
+     * Critically, a `NotificationChannel`'s importance is fixed at creation — Android
+     * ignores it on every later `createNotificationChannel()` call for the same channel
+     * ID, silently keeping whatever importance the channel had the first time it was ever
+     * created on that device. Just changing `IMPORTANCE_LOW` to `IMPORTANCE_HIGH` in code
+     * would have done nothing for anyone who'd already run an earlier build — the old
+     * `"recording_state"` channel would still be sitting there at LOW. Changing the
+     * channel ID (see [NOTIFICATION_CHANNEL_ID]) instead makes this a genuinely new
+     * channel that picks up the new importance from scratch. The old channel is simply
+     * abandoned — Android has no "rename a channel" operation, and there's nothing
+     * meaningful to migrate (no per-channel settings this app sets that would be worth
+     * carrying over, and the user can delete the old "Recording status" channel by hand
+     * from the app's system notification settings if they want it gone, though leaving it
+     * is harmless).
+     */
     private fun ensureNotificationChannel(notificationManager: NotificationManager) {
         if (notificationChannelCreated || Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         notificationManager.createNotificationChannel(
             NotificationChannel(
                 NOTIFICATION_CHANNEL_ID,
                 "Recording status",
-                NotificationManager.IMPORTANCE_LOW,
+                NotificationManager.IMPORTANCE_HIGH,
             ).apply {
                 description = "Notifies when a saved camera starts or stops recording"
             },
