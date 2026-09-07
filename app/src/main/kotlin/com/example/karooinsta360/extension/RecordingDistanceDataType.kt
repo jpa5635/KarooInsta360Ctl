@@ -2,7 +2,10 @@ package com.example.karooinsta360.extension
 
 import android.content.Context
 import android.util.Log
+import android.util.TypedValue
+import android.view.View
 import android.widget.RemoteViews
+import androidx.core.content.ContextCompat
 import com.example.karooinsta360.AppSettings
 import com.example.karooinsta360.R
 import com.example.karooinsta360.connection.Insta360ConnectionManager
@@ -13,6 +16,7 @@ import io.hammerhead.karooext.internal.ViewEmitter
 import io.hammerhead.karooext.models.DataType
 import io.hammerhead.karooext.models.StreamState
 import io.hammerhead.karooext.models.UpdateGraphicConfig
+import io.hammerhead.karooext.models.UserProfile
 import io.hammerhead.karooext.models.ViewConfig
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -20,52 +24,43 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import java.util.concurrent.atomic.AtomicReference
 
 /**
- * **Added (2026-09-07)** — ride distance that behaves exactly like Karoo's own Distance
- * field, plus a flashing red dot whenever any saved camera is recording.
+ * Ride distance that behaves like Karoo's own Distance field, plus a flashing red dot
+ * whenever any saved camera is recording.
  *
- * The point of this one is that it costs no extra page real estate: rather than spending
- * a cell on a dedicated recording indicator, it replaces the Distance field you were
- * already going to have on the page.
+ * The point of this field is that it costs no extra page space: rather than spending a
+ * cell on a dedicated recording indicator, it replaces the Distance field you were going
+ * to have on the page anyway.
  *
- * ### Why this doesn't reimplement distance rendering
+ * ### Why this draws its own number (2026-09-07)
  *
- * It would be a mistake to draw the number ourselves. Matching Karoo's own typography,
- * unit handling (metric/imperial from the user profile), precision, and rescaling across
- * every cell size is a lot of fiddly work that then silently drifts out of match the next
- * time Hammerhead restyles their fields — leaving this as the one odd-looking field on the
- * page.
+ * The first version deliberately did not. `UpdateGraphicConfig.formatDataTypeId` is
+ * documented to exist precisely for this — "overlay graphical elements on existing numeric
+ * data field treatment" — so `startStream` republished the system `TYPE_DISTANCE_ID` value
+ * under this field's own id and `startView` asked Karoo to render it with its stock
+ * distance treatment, leaving our RemoteViews to draw only the dot. That gets native
+ * units, precision and font for free, and survives future Karoo restyles.
  *
- * karoo-ext has a purpose-built way around this, and it is exactly what
- * [UpdateGraphicConfig.formatDataTypeId] is for — per its own doc comment, it exists to
- * "overlay graphical elements on existing numeric data field treatment". So:
+ * On device the cell rendered with no number at all. Rather than keep guessing at why,
+ * this now draws the value itself from a subscription made directly in [startView]. That
+ * matters beyond just "it works": the direct subscription doesn't depend on Karoo choosing
+ * to start our [startStream] at all, which was one of the two candidate explanations and
+ * the one we couldn't rule out from the outside.
  *
- *  - [startStream] republishes the system's `TYPE_DISTANCE_ID` value under this field's
- *    own dataTypeId (the same transform karoo-ext's sample app does for its custom speed
- *    field), and
- *  - [startView] sends `formatDataTypeId = TYPE_DISTANCE_ID`, which tells Karoo OS to
- *    render that value using its stock distance treatment — right units, right precision,
- *    right font, header and all.
+ * The cost is real and worth naming: the font won't match a stock field exactly, and unit
+ * formatting is now ours to keep correct (see [formatDistance], which reads the rider's
+ * configured unit system rather than assuming). [startStream] is kept anyway, so the type
+ * still works as a plain numeric field and so reverting to the overlay approach later is a
+ * small change if it turns out to work on a future karoo-ext.
  *
- * Our own RemoteViews then only ever draw the dot. Everything that makes it look like a
- * native field is native.
+ * Width and theme follow [RecordingControlDataType]: one typeId adapting to
+ * [ViewConfig.gridSize] rather than declared variants, and the theme from
+ * [AppSettings.isFieldThemeDark] since karoo-ext exposes no theme signal.
  *
- * ### Flash rate
- *
- * One second on, one second off, and that is the floor rather than a design choice:
- * `ViewEmitter.updateView` drops any view emitted less than ~900ms after the previous one,
- * so a faster blink driven from here would simply be discarded. A genuinely fast flash
- * would mean hand-building a `ViewFlipper` with `autoStart`/`flipInterval` so the
- * animation runs inside the Karoo process without further emissions — worth doing only if
- * this proves too sedate in practice.
- *
- * Width and theme work the same way as [RecordingControlDataType]: one typeId adapting to
- * [ViewConfig.gridSize] rather than declared width variants, and the theme coming from
- * [AppSettings.isFieldThemeDark] since karoo-ext exposes no theme signal. Here the theme
- * only picks the dot's outline — light ring on dark, dark ring on light — because unlike
- * the control tile this field must not paint its own background: the numeric treatment
- * underneath is Karoo's, and covering it is the one thing that would break the illusion.
+ * Flash rate is 1s on / 1s off — a floor, not a preference, since `ViewEmitter.updateView`
+ * drops any view emitted less than ~900ms after the previous one.
  */
 class RecordingDistanceDataType(
     private val karooSystem: KarooSystemService,
@@ -73,16 +68,10 @@ class RecordingDistanceDataType(
 ) : DataTypeImpl(extension, TYPE_ID) {
 
     override fun startStream(emitter: Emitter<StreamState>) {
-        // (2026-09-07) Logged because this is the load-bearing half of the field and its
-        // failure mode is silent: if Karoo never subscribes here, or the system distance
-        // stream never produces a value, formatDataTypeId below has nothing to format and
-        // the field renders as a bare dot on an empty cell with no error anywhere.
         Log.i(TAG, "startStream: subscribing to ${DataType.Type.DISTANCE}")
         var logged = 0
         val job = CoroutineScope(Dispatchers.Default).launch {
             karooSystem.streamDataFlow(DataType.Type.DISTANCE).collect { state ->
-                // First few of each run only — this fires at the stream's own rate and
-                // would otherwise flood logcat for the whole ride.
                 if (logged < 5) {
                     logged++
                     Log.i(TAG, "startStream: upstream state=$state")
@@ -98,9 +87,6 @@ class RecordingDistanceDataType(
                             ),
                         ),
                     )
-                    // Idle/Searching/NotAvailable pass straight through, so this field
-                    // shows the same "--" treatment the stock Distance field would before
-                    // a ride starts.
                     else -> emitter.onNext(state)
                 }
             }
@@ -114,19 +100,34 @@ class RecordingDistanceDataType(
     override fun startView(context: Context, config: ViewConfig, emitter: ViewEmitter) {
         Log.i(TAG, "startView grid=${config.gridSize} alignment=${config.alignment} preview=${config.preview}")
 
-        // Hand the numeric treatment back to Karoo. Without this the field renders as a
-        // blank cell with only our dot in it.
-        emitter.onNext(
-            UpdateGraphicConfig(
-                showHeader = true,
-                formatDataTypeId = DataType.Type.DISTANCE,
-            ),
-        )
-        Log.i(TAG, "startView: sent formatDataTypeId=${DataType.Type.DISTANCE}")
+        // We draw the whole cell now, so the stock header would duplicate what our own
+        // value already conveys and steal vertical space from it.
+        emitter.onNext(UpdateGraphicConfig(showHeader = false))
 
-        // Put the dot opposite whichever side the rider aligned their data to, so it can
-        // never sit on top of the digits. RemoteViews can't move a child, so the layout
-        // holds one dot per side and we show the one we want (see view_recording_distance.xml).
+        val fullWidth = RecordingControlDataType.isFullWidth(config)
+        val tall = config.gridSize.second > RecordingControlDataType.QUARTER_HEIGHT_ROWS
+
+        // Latest values, written by their own collectors and read by the render loop.
+        val meters = AtomicReference<Double?>(null)
+        val imperial = AtomicReference(false)
+
+        val distanceJob = CoroutineScope(Dispatchers.Default).launch {
+            karooSystem.streamDataFlow(DataType.Type.DISTANCE).collect { state ->
+                meters.set((state as? StreamState.Streaming)?.dataPoint?.singleValue)
+            }
+        }
+
+        // Distance is meaningless without knowing which units the rider reads in, and
+        // that's a profile setting rather than something derivable from the value.
+        val profileJob = CoroutineScope(Dispatchers.Default).launch {
+            karooSystem.consumerFlow<UserProfile>().collect { profile ->
+                val isImperial =
+                    profile.preferredUnit.distance == UserProfile.PreferredUnit.UnitType.IMPERIAL
+                imperial.set(isImperial)
+                Log.i(TAG, "startView: distance unit imperial=$isImperial")
+            }
+        }
+
         val dotId = when (config.alignment) {
             ViewConfig.Alignment.LEFT -> R.id.recordingDistanceDotEnd
             ViewConfig.Alignment.CENTER, ViewConfig.Alignment.RIGHT -> R.id.recordingDistanceDotStart
@@ -136,28 +137,34 @@ class RecordingDistanceDataType(
             else -> R.id.recordingDistanceDotEnd
         }
 
-        var job: Job? = null
-        job = CoroutineScope(Dispatchers.Default).launch {
+        var renderJob: Job? = null
+        renderJob = CoroutineScope(Dispatchers.Default).launch {
             var dotOn = true
             while (isActive) {
-                // In page-editing preview there's no live camera state and a permanently
-                // absent dot makes the field look identical to the stock Distance field,
-                // which is exactly the question the rider is trying to answer while
-                // choosing it. So show it steady there.
                 val recording = config.preview || Insta360ConnectionManager.isAnyCameraRecording(context)
                 val dark = AppSettings.isFieldThemeDark(context)
+                val textColor = if (dark) R.color.field_dark_text else R.color.field_light_text
                 val dotDrawable = if (dark) R.drawable.ic_rec_dot_on_dark else R.drawable.ic_rec_dot_on_light
 
+                val textSizeSp = when {
+                    fullWidth && tall -> 44f
+                    fullWidth -> 34f
+                    tall -> 32f
+                    else -> 26f
+                }
+
                 val views = RemoteViews(context.packageName, R.layout.view_recording_distance).apply {
+                    setTextViewText(R.id.distanceValue, formatDistance(meters.get(), imperial.get()))
+                    setTextViewTextSize(R.id.distanceValue, TypedValue.COMPLEX_UNIT_SP, textSizeSp)
+                    setTextColor(R.id.distanceValue, ContextCompat.getColor(context, textColor))
                     setImageViewResource(dotId, dotDrawable)
+                    // INVISIBLE rather than GONE on the active side so the dot blinks in
+                    // place without the value shifting under it.
                     setViewVisibility(
                         dotId,
-                        if (recording && (dotOn || config.preview)) android.view.View.VISIBLE else android.view.View.INVISIBLE,
+                        if (recording && (dotOn || config.preview)) View.VISIBLE else View.INVISIBLE,
                     )
-                    // INVISIBLE rather than GONE for the shown side so the dot blinks in
-                    // place without the layout reflowing under it; the unused side is
-                    // GONE since it never needs to occupy space at all.
-                    setViewVisibility(otherDotId, android.view.View.GONE)
+                    setViewVisibility(otherDotId, View.GONE)
                 }
                 emitter.updateView(views)
 
@@ -168,18 +175,26 @@ class RecordingDistanceDataType(
 
         emitter.setCancellable {
             Log.i(TAG, "stopView")
-            job?.cancel()
+            distanceJob.cancel()
+            profileJob.cancel()
+            renderJob?.cancel()
         }
+    }
+
+    /**
+     * Karoo reports distance in meters. Two decimal places matches the stock field's
+     * treatment closely enough to sit beside it without looking out of place.
+     */
+    private fun formatDistance(meters: Double?, imperial: Boolean): String {
+        if (meters == null) return "--"
+        val value = if (imperial) meters / METERS_PER_MILE else meters / 1000.0
+        return "%.2f".format(value)
     }
 
     companion object {
         private const val TAG = "RecordingDistance"
         const val TYPE_ID = "recording_distance"
-
-        /**
-         * Matches ViewEmitter's own ~900ms drop threshold with a little headroom. Going
-         * lower doesn't blink faster, it just discards frames.
-         */
         const val BLINK_PERIOD_MS = 1_000L
+        private const val METERS_PER_MILE = 1609.344
     }
 }

@@ -1194,6 +1194,37 @@ The custom distance field is also now named just "Distance" rather than "Insta36
 Distance": the extension name already appears next to it in the field picker, so the
 prefix read as a stutter and sorted it away from the stock field it replaces.
 
+**Fixed (2026-09-07, 0.1.13) — the two things still broken in 0.1.12.**
+
+*Camera-side recording still undetected.* The 0.1.12 fix corrected how inbound frames were
+classified, but that was downstream of the actual problem: `Insta360BleClient` only ever
+subscribed to **BE82**, and `onCharacteristicChanged` ignored frames from anything else.
+insta360ctl subscribes to five notify characteristics (BE82, AE02, and B002/B003/B004 on
+the secondary service), so if this camera pushes capture status on any of the others, the
+frames were never arriving to be classified. Rather than hard-code that list and hope it
+matches the Ace Pro 2, service discovery now subscribes to *every* characteristic
+advertising NOTIFY or INDICATE, and logs the full discovery so an absent notification is
+distinguishable from an unsubscribed one. Subscriptions are issued one at a time from each
+other's completion callback, since Android's GATT stack silently drops a descriptor write
+issued while another is in flight. Frame classification also no longer requires the
+from-camera flag, for the same reason it no longer requires `sequence == 0`: if a model
+doesn't set it, requiring it drops exactly the frames we care about.
+
+*Distance field showed no number.* It relied on
+`UpdateGraphicConfig(formatDataTypeId = TYPE_DISTANCE_ID)` to have Karoo render the value
+beneath our dot overlay — which is what that setting is documented for, and how karoo-ext's
+own sample uses it — but on device the cell came up empty. The field now draws its own
+value from a `DISTANCE` subscription made directly in `startView`. Beyond simply working,
+that removes the dependency on Karoo choosing to start our `startStream` at all, which was
+one of the two candidate explanations and the one that couldn't be ruled out from outside.
+
+The costs are worth naming: the font no longer matches a stock field exactly, unit
+formatting is now ours to keep right (it reads the rider's configured unit system rather
+than assuming metric), and the value is centred rather than honouring the field's
+alignment setting, since RemoteViews can't set gravity at runtime without risking an
+`ActionException`. `startStream` is kept regardless, so the type still works as a plain
+numeric field and reverting to the overlay approach stays a small change.
+
 ## Attribution
 
 BLE protocol reverse-engineering courtesy of

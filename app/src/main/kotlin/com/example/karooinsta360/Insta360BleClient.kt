@@ -111,6 +111,18 @@ class Insta360BleClient(
     private var reassemblyCommandCode: Int = 0
     private var reassemblySeq: Int = 0
 
+    /**
+     * **Added (2026-09-07, fix)** — CCCD writes still to be issued, and whether
+     * [Listener.onConnected] has already fired.
+     *
+     * Android's GATT stack processes exactly one descriptor write at a time and silently
+     * drops any issued while another is in flight, so subscribing to several notify
+     * characteristics means writing them one at a time, each from the previous one's
+     * completion callback.
+     */
+    private val pendingSubscriptions = ArrayDeque<BluetoothGattCharacteristic>()
+    private var connectedAnnounced = false
+
     fun connect(device: BluetoothDevice) {
         deviceAddress = device.address
         gatt = device.connectGatt(context, false, gattCallback, BluetoothDevice.TRANSPORT_LE)
@@ -147,32 +159,57 @@ class Insta360BleClient(
                 return
             }
             writeChar = service.getCharacteristic(CHAR_BE81_WRITE)
-            val notifyChar = service.getCharacteristic(CHAR_BE82_NOTIFY)
-
-            if (writeChar == null || notifyChar == null) {
-                listener.onError("BE81/BE82 characteristics not found")
+            if (writeChar == null) {
+                listener.onError("BE81 write characteristic not found")
                 return
             }
             Log.i(TAG, "BE81 properties=0x${writeChar!!.properties.toString(16)} " +
                 "(WRITE=0x08, WRITE_NO_RESPONSE=0x04) writeType currently used=${writeChar!!.writeType}")
 
-            // Enable notifications on BE82.
-            g.setCharacteristicNotification(notifyChar, true)
-            val cccd = notifyChar.getDescriptor(CCCD_UUID)
-            if (cccd != null) {
-                cccd.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
-                g.writeDescriptor(cccd)
-            } else {
-                // Some stacks auto-configure CCCD; proceed but log it.
-                Log.w(TAG, "CCCD descriptor missing on BE82 — notifications may not arrive")
-                listener.onConnected()
+            // **Fixed (2026-09-07)** — this used to subscribe to BE82 and nothing else,
+            // which is why camera-side recording was never detected even after the frame
+            // routing was corrected: insta360ctl subscribes to five notify
+            // characteristics (BE82, AE02, and B002/B003/B004 on the secondary service),
+            // and if this camera pushes capture status on any of the others, the frames
+            // were never arriving at all.
+            //
+            // Rather than hard-coding that list and hoping it matches this model, every
+            // characteristic on every service that advertises NOTIFY or INDICATE is
+            // subscribed to. Full discovery is also logged, so if something still doesn't
+            // arrive, the log shows exactly what the camera does and doesn't offer.
+            connectedAnnounced = false
+            pendingSubscriptions.clear()
+            g.services.forEach { svc ->
+                svc.characteristics.forEach { ch ->
+                    val props = ch.properties
+                    val notifies = props and BluetoothGattCharacteristic.PROPERTY_NOTIFY != 0
+                    val indicates = props and BluetoothGattCharacteristic.PROPERTY_INDICATE != 0
+                    Log.i(
+                        TAG,
+                        "Discovered ${svc.uuid} / ${ch.uuid} props=0x${props.toString(16)}" +
+                            (if (notifies || indicates) " [subscribing]" else ""),
+                    )
+                    if (notifies || indicates) pendingSubscriptions.addLast(ch)
+                }
             }
+
+            if (pendingSubscriptions.isEmpty()) {
+                Log.w(TAG, "No notify characteristics found — camera-side events will not arrive")
+                announceConnected()
+                return
+            }
+            subscribeNext(g)
         }
 
         override fun onDescriptorWrite(g: BluetoothGatt, descriptor: BluetoothGattDescriptor, status: Int) {
-            if (descriptor.uuid == CCCD_UUID) {
-                listener.onConnected()
+            if (descriptor.uuid != CCCD_UUID) return
+            if (status != BluetoothGatt.GATT_SUCCESS) {
+                // Not fatal on its own: one characteristic refusing a subscription
+                // shouldn't stop the others, and the important one may well be later in
+                // the queue.
+                Log.w(TAG, "CCCD write failed for ${descriptor.characteristic?.uuid} status=$status")
             }
+            if (pendingSubscriptions.isEmpty()) announceConnected() else subscribeNext(g)
         }
 
         override fun onCharacteristicWrite(
@@ -190,10 +227,38 @@ class Insta360BleClient(
 
         @Suppress("DEPRECATION")
         override fun onCharacteristicChanged(g: BluetoothGatt, characteristic: BluetoothGattCharacteristic) {
-            if (characteristic.uuid == CHAR_BE82_NOTIFY) {
-                handleIncoming(characteristic.value)
-            }
+            // Was filtered to BE82 only; now accepts frames from every characteristic we
+            // subscribed to above, since which one carries capture status on this model is
+            // exactly the thing that was unknown.
+            val data = characteristic.value ?: return
+            handleIncoming(data, characteristic.uuid.toString())
         }
+    }
+
+    /** See [pendingSubscriptions] for why these are issued one at a time. */
+    private fun subscribeNext(g: BluetoothGatt) {
+        val ch = pendingSubscriptions.removeFirstOrNull() ?: run {
+            announceConnected()
+            return
+        }
+        g.setCharacteristicNotification(ch, true)
+        val cccd = ch.getDescriptor(CCCD_UUID)
+        if (cccd == null) {
+            // Some stacks auto-configure CCCD. Nothing to wait for, so move straight on.
+            Log.w(TAG, "CCCD descriptor missing on ${ch.uuid}")
+            subscribeNext(g)
+            return
+        }
+        @Suppress("DEPRECATION")
+        cccd.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+        @Suppress("DEPRECATION")
+        g.writeDescriptor(cccd)
+    }
+
+    private fun announceConnected() {
+        if (connectedAnnounced) return
+        connectedAnnounced = true
+        listener.onConnected()
     }
 
     /**
@@ -355,13 +420,13 @@ class Insta360BleClient(
         fun toByteArray(): ByteArray = out.toByteArray()
     }
 
-    private fun handleIncoming(data: ByteArray) {
+    private fun handleIncoming(data: ByteArray, sourceUuid: String = CHAR_BE82_NOTIFY.toString()) {
         if (data.size < 16) {
             // Confirmed benign: the camera sends short (7-byte) periodic
             // heartbeat/keepalive notifications on BE82 outside the normal
             // 16-byte header framing (observed roughly once per second in a
             // real BLE capture of the official app's session). Not an error.
-            Log.d(TAG, "Short frame received (${data.size} bytes), raw=${data.joinToString(" ") { "%02X".format(it) }} — likely a heartbeat, ignoring")
+            Log.i(TAG, "Short frame from $sourceUuid (${data.size} bytes), raw=${data.joinToString(" ") { "%02X".format(it) }} — likely a heartbeat, ignoring")
             return
         }
         val totalInnerSize = readU32LE(data, 0)
@@ -396,7 +461,7 @@ class Insta360BleClient(
         if (fromCamera) {
             Log.i(
                 TAG,
-                "RX cmd=0x${commandCode.toString(16)} seq=$sequence len=${combined.size} " +
+                "RX $sourceUuid cmd=0x${commandCode.toString(16)} seq=$sequence len=${combined.size} " +
                     "raw=${combined.joinToString(" ") { "%02X".format(it) }}",
             )
         }
@@ -412,8 +477,11 @@ class Insta360BleClient(
         // codes start at 0x2000 and command codes never reach it, so no legitimate
         // command response can be mistaken for a notification regardless of what
         // sequence numbering the camera uses.
+        // Note this no longer requires the from-camera flag either: if a model doesn't set
+        // bit 0x40 on its pushes, requiring it would drop them for the same reason the
+        // sequence check did.
         val isNotification = commandCode >= NOTIFY_CODE_FLOOR
-        if (fromCamera && (isNotification || sequence == 0)) {
+        if (isNotification || (fromCamera && sequence == 0)) {
             listener.onNotification(commandCode, combined)
         } else {
             listener.onCommandResponse(commandCode, sequence, combined)
