@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- RemoteViews overlay for the "Recording Distance" data field (see
+     RecordingDistanceDataType.kt).
+
+     Deliberately near-empty. Unlike the Recording Control tile, this field does NOT draw
+     its own value: startView sends UpdateGraphicConfig(formatDataTypeId = TYPE_DISTANCE_ID),
+     which tells Karoo OS to render the streamed value using its own standard numeric
+     treatment — correct units, precision, header and font, matching every other field on
+     the page for free. This layout only adds the dot on top of that.
+
+     Two pre-positioned dots rather than one repositioned dot: RemoteViews can't change a
+     child's layout_gravity, and setViewLayoutWidth/Height is API 31+ (minSdk here is 26),
+     so the code toggles visibility to pick a side instead. The dot sits opposite the
+     rider's configured data alignment so it never lands on the digits. -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/recordingDistanceRoot"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:padding="6dp">
+
+    <ImageView
+        android:id="@+id/recordingDistanceDotStart"
+        android:layout_width="14dp"
+        android:layout_height="14dp"
+        android:layout_gravity="start|top"
+        android:visibility="gone"
+        android:contentDescription="@string/recording_dot_description"
+        android:src="@drawable/ic_rec_dot_on_dark" />
+
+    <ImageView
+        android:id="@+id/recordingDistanceDotEnd"
+        android:layout_width="14dp"
+        android:layout_height="14dp"
+        android:layout_gravity="end|top"
+        android:visibility="gone"
+        android:contentDescription="@string/recording_dot_description"
+        android:src="@drawable/ic_rec_dot_on_dark" />
+
+</FrameLayout>

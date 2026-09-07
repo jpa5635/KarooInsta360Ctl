@@ -1076,6 +1076,64 @@ This build reverses that:
   `activeCameraAddresses` key at all (added this version) is read as if every camera it had
   settings for was already switched on, matching 0.1.8's actual behavior.
 
+**Added (2026-09-07) — recording indicator work: field layouts, themes, camera-side
+detection, and trigger reasons in alerts.** Four changes:
+
+1. **Recording Control field: red background, width-aware layout, light/dark.** The tile
+   now fills its whole cell with red (`field_recording_bg`) while any saved camera is
+   recording, so state reads from peripheral vision rather than requiring you to read
+   text. Layout adapts between full-width and half-width cells — note this is one data
+   type, not two: a field has no per-instance config and no declared width variants, so
+   `ViewConfig.gridSize` (60-unit grid; `Pair(60, 15)` = full width, quarter height) is
+   what the field branches on at render time. Light/dark, by contrast, *does* need a
+   setting, because karoo-ext exposes no theme signal anywhere — not `ViewConfig`, not
+   `RideProfile`, not `UserProfile` — hence `AppSettings.isFieldThemeDark`, app-wide
+   rather than per-placement to avoid doubling this extension's entries in the field
+   picker.
+
+2. **Camera-side recording is now detected.** `Insta360BleClient` already separated
+   unsolicited notifications from command responses (sequence 0 with the from-camera
+   flag) but only logged them. Now `Insta360ConnectionManager.handleCameraNotification`
+   acts on them: `0x2008`/`0x2014` (physical shutter button, paired remote) trigger a
+   status query rather than a guess; `0x2009` and `0x2007`/`0x2005` (capture stopped,
+   card full, shutdown) apply directly; `0x2002` (auto-split) is explicitly ignored,
+   since it fires mid-recording when the camera rolls to a new file and would otherwise
+   read as a stop. `CMD_GET_CURRENT_CAPTURE_STATUS` (0x0F) is also sent on every connect,
+   replacing the old assumption that a freshly connected camera is idle — which was wrong
+   whenever the camera was already rolling before we got there.
+
+   **The 0x2010 payload parse is unconfirmed and fails closed.** insta360ctl parses that
+   code for *storage* fields on the GO 3 despite its name being `NotifyCurrentCaptureStatus`,
+   so the payload carries more than capture state and the field numbering may differ by
+   model. `handleCaptureStatusPayload` therefore only reads field 1 as a varint and, if
+   the payload isn't shaped that way, logs the raw hex and leaves our existing belief
+   alone rather than replacing it with a wrong one. Ride once, start/stop the camera by
+   hand, and logcat will show the real layout.
+
+3. **New "Insta360 Distance" data field** (`recording_distance`) — ride distance that
+   behaves exactly like Karoo's stock Distance field, with a red dot flashing beside it
+   while recording. It costs no extra page space, since it replaces a Distance field you
+   were going to have anyway. Crucially it does *not* reimplement distance rendering:
+   `startStream` republishes the system `TYPE_DISTANCE_ID` value under this field's own
+   id, and `startView` sends `UpdateGraphicConfig(formatDataTypeId = TYPE_DISTANCE_ID)`,
+   which is precisely what that field exists for ("overlay graphical elements on existing
+   numeric data field treatment", per its own doc comment). Units, precision, font and
+   header stay native and stay correct through future Karoo restyles.
+
+   Flash rate is 1s on / 1s off, and that is a floor rather than a preference:
+   `ViewEmitter.updateView` silently drops any view emitted less than ~900ms after the
+   previous one. A faster flash would need a hand-built `ViewFlipper` with
+   `autoStart`/`flipInterval` so the animation runs inside the Karoo process.
+
+4. **Start/stop alerts now say why.** The free-text `reason: String` on
+   `startCapture`/`stopCapture` became `RecordingReason` (new file), which carries both a
+   `logText` (unchanged detail for logcat) and a short `alertText` for the rider. So an
+   `InRideAlert` now reads "Ace Pro 2 · Speed trigger" or "Ace Pro 2 · Manually from
+   Karoo button" instead of just the camera name, while logcat keeps the full
+   "speed stop: rawSpeed=1.8m/s < 4.0m/s (9.0mph)" detail. Data-source-loss stops are
+   distinguished from ordinary threshold stops in the alert as well as the log, since a
+   dropped strap is actionable mid-ride in a way a normal stop isn't.
+
 ## Attribution
 
 BLE protocol reverse-engineering courtesy of

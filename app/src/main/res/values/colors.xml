@@ -6,4 +6,16 @@
     <color name="recording_started_bg">#2E7D32</color>
     <color name="recording_stopped_bg">#455A64</color>
     <color name="recording_alert_text">#FFFFFF</color>
+
+    <!-- Added (2026-09-07) for the graphical ride-page fields. The recording background
+         is deliberately a deep red rather than a bright one: it fills a whole data field
+         cell, and a saturated red at that size is hard to read white text on in direct
+         sun. -->
+    <color name="field_recording_bg">#C1121F</color>
+    <color name="field_dark_bg">#40000000</color>
+    <color name="field_light_bg">#F2FFFFFF</color>
+    <color name="field_dark_text">#FFFFFF</color>
+    <color name="field_light_text">#111111</color>
+    <color name="field_recording_text">#FFFFFF</color>
+    <color name="recording_dot">#FF2D2D</color>
 </resources>

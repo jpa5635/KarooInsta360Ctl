@@ -19,6 +19,7 @@ import androidx.core.content.ContextCompat
 import com.example.karooinsta360.AppSettings
 import com.example.karooinsta360.Insta360BleClient
 import com.example.karooinsta360.R
+import com.example.karooinsta360.RecordingReason
 import com.example.karooinsta360.camera.CameraStore
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArraySet
@@ -62,7 +63,7 @@ object Insta360ConnectionManager {
          * to dispatch through — only the extension does — hence this being a listener
          * callback rather than something done directly here.
          */
-        fun onRecordingChanged(address: String, recording: Boolean) {}
+        fun onRecordingChanged(address: String, recording: Boolean, reason: RecordingReason) {}
     }
 
     data class CameraState(
@@ -194,10 +195,17 @@ object Insta360ConnectionManager {
      * [pauseAutomation] call here, before ownership tracking existed — see
      * [pauseAutomationBriefly]'s doc comment for why that turned into a bug.)
      */
-    fun startAllCameras(context: Context) {
+    fun startAllCameras(
+        context: Context,
+        manualSource: RecordingReason.Manual.Source = RecordingReason.Manual.Source.KAROO_FIELD,
+    ) {
         CameraStore.getCameras(context).forEach { cfg ->
             if (isConnected(cfg.address) && !isRecording(cfg.address)) {
-                startCapture(cfg.address, RecordingOwner.MANUAL, reason = "manual start-all (ride-page tile / BonusAction)")
+                startCapture(
+                    cfg.address,
+                    RecordingOwner.MANUAL,
+                    reason = RecordingReason.Manual(manualSource),
+                )
             }
         }
     }
@@ -210,18 +218,28 @@ object Insta360ConnectionManager {
      * "should be recording, isn't" and immediately start it right back up — "tapped Stop
      * and it just started recording again."
      */
-    fun stopAllCameras(context: Context) {
+    fun stopAllCameras(
+        context: Context,
+        manualSource: RecordingReason.Manual.Source = RecordingReason.Manual.Source.KAROO_FIELD,
+    ) {
         CameraStore.getCameras(context).forEach { cfg ->
             if (isRecording(cfg.address)) {
                 pauseAutomationBriefly(cfg.address)
-                stopCapture(cfg.address, reason = "manual stop-all (ride-page tile / BonusAction)")
+                stopCapture(cfg.address, reason = RecordingReason.Manual(manualSource))
             }
         }
     }
 
     /** Stops everything if anything's recording, otherwise starts everything. See [startAllCameras]. */
-    fun toggleAllCameras(context: Context) {
-        if (isAnyCameraRecording(context)) stopAllCameras(context) else startAllCameras(context)
+    fun toggleAllCameras(
+        context: Context,
+        manualSource: RecordingReason.Manual.Source = RecordingReason.Manual.Source.KAROO_FIELD,
+    ) {
+        if (isAnyCameraRecording(context)) {
+            stopAllCameras(context, manualSource)
+        } else {
+            startAllCameras(context, manualSource)
+        }
     }
 
     /** Connects to every saved camera not already connected/connecting. Safe to call repeatedly. */
@@ -287,29 +305,33 @@ object Insta360ConnectionManager {
      * can be correlated from logcat alone, without cross-referencing timestamps between two
      * unrelated-looking log lines.
      */
-    fun startCapture(address: String, owner: RecordingOwner, reason: String = "unspecified") {
+    fun startCapture(
+        address: String,
+        owner: RecordingOwner,
+        reason: RecordingReason = RecordingReason.Unspecified,
+    ) {
         val client = clients[address]
         if (client == null || !isConnected(address)) {
-            Log.w(TAG, "startCapture($address) IGNORED — not connected (reason: $reason)")
+            Log.w(TAG, "startCapture($address) IGNORED — not connected (reason: ${reason.logText})")
             return
         }
         client.startCapture()
         setRecording(address, true, owner)
-        Log.i(TAG, "startCapture($address) SENT — owner=$owner reason=$reason")
-        onGenuineRecordingAction(address, recording = true)
+        Log.i(TAG, "startCapture($address) SENT — owner=$owner reason=${reason.logText}")
+        onGenuineRecordingAction(address, recording = true, reason = reason)
     }
 
     /** See [startCapture]'s doc comment for what [reason] is and why it's here. */
-    fun stopCapture(address: String, reason: String = "unspecified") {
+    fun stopCapture(address: String, reason: RecordingReason = RecordingReason.Unspecified) {
         val client = clients[address]
         if (client == null || !isConnected(address)) {
-            Log.w(TAG, "stopCapture($address) IGNORED — not connected (reason: $reason)")
+            Log.w(TAG, "stopCapture($address) IGNORED — not connected (reason: ${reason.logText})")
             return
         }
         client.stopCapture()
         setRecording(address, false)
-        Log.i(TAG, "stopCapture($address) SENT — reason=$reason")
-        onGenuineRecordingAction(address, recording = false)
+        Log.i(TAG, "stopCapture($address) SENT — reason=${reason.logText}")
+        onGenuineRecordingAction(address, recording = false, reason = reason)
     }
 
     // No longer wired to any button — see the 2026-08-27 README entry. On the X4 Air,
@@ -403,9 +425,120 @@ object Insta360ConnectionManager {
      * from there would announce a false "stopped" every time a camera merely reconnects).
      * Fans out to both the status-bar notification and [Listener.onRecordingChanged].
      */
-    private fun onGenuineRecordingAction(address: String, recording: Boolean) {
+    private fun onGenuineRecordingAction(address: String, recording: Boolean, reason: RecordingReason) {
         notifyRecordingChanged(address, recording)
-        listeners.forEach { it.onRecordingChanged(address, recording) }
+        listeners.forEach { it.onRecordingChanged(address, recording, reason) }
+    }
+
+    /**
+     * **Added (2026-09-07)** — the camera told us something changed without us asking.
+     *
+     * Everything in this app used to assume it was the only thing that could ever start or
+     * stop a recording, so a camera started by its own shutter button, or by a paired
+     * Insta360 remote, or one that stopped itself on a full card, left every field and
+     * every latch in this app believing the opposite of the truth for the rest of the
+     * ride. These notifications are the camera's own account of what it is doing, and they
+     * take precedence over anything we inferred.
+     *
+     * Ownership is deliberately left at [RecordingOwner.NONE] for camera-side starts: the
+     * automatic monitor in [com.example.karooinsta360.extension.Insta360Extension] only
+     * ever stops recordings it owns, so a recording the rider started on the camera itself
+     * will not be auto-stopped out from under them by a latch that happens to disagree.
+     */
+    private fun handleCameraNotification(address: String, code: Int, payload: ByteArray) {
+        val hex = payload.joinToString(" ") { "%02X".format(it) }
+        when (code) {
+            Insta360BleClient.NOTIFY_CURRENT_CAPTURE_STATUS -> {
+                Log.i(TAG, "[$address] capture-status notification: $hex")
+                handleCaptureStatusPayload(address, payload, source = "notification")
+            }
+
+            // The physical shutter button, and the equivalent press relayed from a paired
+            // remote. Neither payload says what the camera is now doing, only that
+            // something was pressed — so ask, rather than guess by inverting our own
+            // possibly-stale belief.
+            Insta360BleClient.NOTIFY_KEY_PRESSED,
+            Insta360BleClient.NOTIFY_SYNC_CAPTURE_BUTTON_TRIGGER,
+            -> {
+                Log.i(TAG, "[$address] camera-side button (code=0x${code.toString(16)}): $hex — querying status")
+                clients[address]?.queryCaptureStatus()
+            }
+
+            Insta360BleClient.NOTIFY_CAPTURE_STOPPED -> {
+                Log.i(TAG, "[$address] capture stopped by camera: $hex")
+                applyExternalRecordingState(address, recording = false, reason = RecordingReason.CameraSide)
+            }
+
+            Insta360BleClient.NOTIFY_STORAGE_FULL ->
+                applyExternalRecordingState(
+                    address,
+                    recording = false,
+                    reason = RecordingReason.CameraFault(RecordingReason.CameraFault.Fault.STORAGE_FULL),
+                )
+
+            Insta360BleClient.NOTIFY_BATTERY_LOW ->
+                Log.w(TAG, "[$address] camera battery low: $hex")
+
+            Insta360BleClient.NOTIFY_SHUTDOWN ->
+                applyExternalRecordingState(
+                    address,
+                    recording = false,
+                    reason = RecordingReason.CameraFault(RecordingReason.CameraFault.Fault.SHUTDOWN),
+                )
+
+            // Fires mid-recording when the camera rolls over to a new file. It is NOT a
+            // stop, and treating it as one would end a perfectly healthy recording every
+            // few minutes.
+            Insta360BleClient.NOTIFY_CAPTURE_AUTO_SPLIT ->
+                Log.i(TAG, "[$address] capture auto-split (still recording): $hex")
+
+            else -> Log.d(TAG, "[$address] Notification code=0x${code.toString(16)} len=${payload.size} raw=$hex")
+        }
+    }
+
+    /**
+     * Best-effort read of a capture-status payload, from either the 0x2010 notification or
+     * the response to [Insta360BleClient.CMD_GET_CURRENT_CAPTURE_STATUS].
+     *
+     * **This parse is not yet confirmed against the Ace Pro 2 and deliberately fails
+     * closed.** insta360ctl parses 0x2010 for *storage* fields on the GO 3 despite the
+     * code being named for capture status, so the payload evidently carries several
+     * things and the protobuf field numbering may well differ by model. Rather than
+     * guessing a schema, this looks only for field 1 as a varint — the conventional slot
+     * for a state enum — and ignores the payload entirely if it isn't shaped that way,
+     * leaving our existing belief untouched rather than replacing it with a wrong one.
+     *
+     * Every payload is logged in hex regardless. Ride with the camera once, start and stop
+     * it by hand, and the logcat lines will show what the real layout is; then this
+     * becomes a real parser instead of a heuristic.
+     */
+    private fun handleCaptureStatusPayload(address: String, payload: ByteArray, source: String) {
+        val hex = payload.joinToString(" ") { "%02X".format(it) }
+        if (payload.isEmpty()) {
+            Log.i(TAG, "[$address] capture status ($source): empty payload, ignoring")
+            return
+        }
+        // Protobuf tag byte for field 1, varint wire type.
+        if (payload[0].toInt() and 0xFF != 0x08) {
+            Log.i(TAG, "[$address] capture status ($source): unrecognised layout raw=$hex — belief unchanged")
+            return
+        }
+        val value = payload.getOrNull(1)?.toInt()?.and(0x7F) ?: return
+        val recording = value != 0
+        Log.i(TAG, "[$address] capture status ($source): field1=$value -> recording=$recording raw=$hex")
+        applyExternalRecordingState(address, recording, RecordingReason.CameraSide)
+    }
+
+    /**
+     * Applies camera-reported state, but only when it actually contradicts what we already
+     * believe — otherwise every status query would re-announce a recording that has been
+     * running happily for twenty minutes.
+     */
+    private fun applyExternalRecordingState(address: String, recording: Boolean, reason: RecordingReason) {
+        if (isRecording(address) == recording) return
+        Log.i(TAG, "[$address] external recording state -> $recording (${reason.logText})")
+        setRecording(address, recording, RecordingOwner.NONE)
+        onGenuineRecordingAction(address, recording, reason)
     }
 
     /**
@@ -543,7 +676,16 @@ object Insta360ConnectionManager {
                 override fun onConnected() {
                     Log.i(TAG, "Camera $address connected")
                     connectedFlags[address] = true
+                    // Assume nothing: this used to hard-reset the flag to false, which is
+                    // wrong whenever the camera was already rolling before we connected
+                    // (its own shutter button, a paired remote, or simply this app
+                    // restarting mid-recording). Seed from a real query instead — the
+                    // response lands in onCommandResponse below. The false here is only a
+                    // placeholder until it does.
                     setRecording(address, false)
+                    // clients[address] rather than the local `client`, which isn't
+                    // initialised yet from inside its own listener.
+                    clients[address]?.queryCaptureStatus()
                 }
 
                 override fun onDisconnected() {
@@ -556,10 +698,13 @@ object Insta360ConnectionManager {
 
                 override fun onCommandResponse(commandCode: Int, sequence: Int, payload: ByteArray) {
                     Log.d(TAG, "[$address] Response cmd=$commandCode seq=$sequence len=${payload.size}")
+                    if (commandCode == Insta360BleClient.CMD_GET_CURRENT_CAPTURE_STATUS) {
+                        handleCaptureStatusPayload(address, payload, source = "status query")
+                    }
                 }
 
                 override fun onNotification(notificationCode: Int, payload: ByteArray) {
-                    Log.d(TAG, "[$address] Notification code=$notificationCode len=${payload.size}")
+                    handleCameraNotification(address, notificationCode, payload)
                 }
 
                 override fun onError(message: String) {

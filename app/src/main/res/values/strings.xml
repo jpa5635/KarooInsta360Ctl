@@ -2,4 +2,7 @@
     <string name="app_name">Karoo Insta360</string>
     <string name="extension_name">Insta360 Camera</string>
     <string name="action_toggle_recording">Toggle Camera Recording</string>
+    <string name="recording_dot_description">Recording</string>
+    <string name="recording_distance_name">Insta360 Distance</string>
+    <string name="recording_distance_description">Ride distance, with a flashing red dot while any saved camera is recording</string>
 </resources>

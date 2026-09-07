@@ -19,6 +19,13 @@
         graphical="true"
         icon="@drawable/ic_extension" />
 
+    <DataType
+        typeId="recording_distance"
+        displayName="@string/recording_distance_name"
+        description="@string/recording_distance_description"
+        graphical="true"
+        icon="@drawable/ic_extension" />
+
     <BonusAction
         actionId="toggle_recording"
         displayName="@string/action_toggle_recording" />

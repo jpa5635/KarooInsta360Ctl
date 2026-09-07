@@ -53,6 +53,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var manualAddressInput: EditText
     private lateinit var manualAddButton: Button
     private lateinit var notifyCheckbox: CheckBox
+    private lateinit var darkFieldThemeCheckbox: CheckBox
     private lateinit var dataSourceLossTimeoutInput: EditText
     private lateinit var saveDataSourceLossTimeoutButton: Button
     private lateinit var activeProfileText: TextView
@@ -105,6 +106,7 @@ class MainActivity : AppCompatActivity() {
         manualAddressInput = findViewById(R.id.manualAddressInput)
         manualAddButton = findViewById(R.id.manualAddButton)
         notifyCheckbox = findViewById(R.id.notifyOnRecordingChangeCheckbox)
+        darkFieldThemeCheckbox = findViewById(R.id.darkFieldThemeCheckbox)
         dataSourceLossTimeoutInput = findViewById(R.id.dataSourceLossTimeoutInput)
         saveDataSourceLossTimeoutButton = findViewById(R.id.saveDataSourceLossTimeoutButton)
         activeProfileText = findViewById(R.id.activeProfileText)
@@ -115,6 +117,15 @@ class MainActivity : AppCompatActivity() {
         scanForCamerasButton.setOnClickListener { requestPermissionsAndScan() }
         manualAddButton.setOnClickListener { addByAddress() }
         saveNewProfileButton.setOnClickListener { promptSaveNewProfile() }
+
+        // Graphical data fields draw their own background, and karoo-ext gives an
+        // extension no way to know whether the rider's pages are light or dark — so this
+        // is the only way for those fields to match the rest of the page. Live: the
+        // fields watch this preference and repaint without waiting for a ride event.
+        darkFieldThemeCheckbox.isChecked = AppSettings.isFieldThemeDark(this)
+        darkFieldThemeCheckbox.setOnCheckedChangeListener { _, checked ->
+            AppSettings.setFieldThemeDark(this, checked)
+        }
 
         notifyCheckbox.isChecked = AppSettings.isRecordingNotificationEnabled(this)
         notifyCheckbox.setOnCheckedChangeListener { _, checked ->

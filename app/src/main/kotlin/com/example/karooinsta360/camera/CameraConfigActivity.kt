@@ -8,6 +8,7 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import com.example.karooinsta360.R
+import com.example.karooinsta360.RecordingReason
 import com.example.karooinsta360.connection.Insta360ConnectionManager
 
 /**
@@ -70,11 +71,14 @@ class CameraConfigActivity : AppCompatActivity() {
             Insta360ConnectionManager.startCapture(
                 address,
                 Insta360ConnectionManager.RecordingOwner.MANUAL,
-                reason = "manual Start button (Configure screen)",
+                reason = RecordingReason.Manual(RecordingReason.Manual.Source.CONFIG_SCREEN),
             )
         }
         stopButton.setOnClickListener {
-            Insta360ConnectionManager.stopCapture(address, reason = "manual Stop button (Configure screen)")
+            Insta360ConnectionManager.stopCapture(
+                address,
+                reason = RecordingReason.Manual(RecordingReason.Manual.Source.CONFIG_SCREEN),
+            )
         }
         saveButton.setOnClickListener { saveName() }
         removeButton.setOnClickListener { removeCamera() }

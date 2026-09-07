@@ -3,6 +3,7 @@ package com.example.karooinsta360.extension
 import android.content.SharedPreferences
 import android.util.Log
 import com.example.karooinsta360.AppSettings
+import com.example.karooinsta360.RecordingReason
 import com.example.karooinsta360.R
 import com.example.karooinsta360.camera.CameraStore
 import com.example.karooinsta360.camera.ProfileStore
@@ -105,11 +106,21 @@ class Insta360Extension : KarooExtension(EXTENSION_ID, "1.0") {
         )
     }
 
+    private val karooSystem by lazy { KarooSystemService(this) }
+
     private val recordingDataType by lazy { RecordingStateDataType(extension) }
     private val recordingControlDataType by lazy { RecordingControlDataType(extension) }
-    override val types by lazy { listOf(recordingDataType, recordingControlDataType) }
 
-    private val karooSystem by lazy { KarooSystemService(this) }
+    /**
+     * **Added (2026-09-07)** — see [RecordingDistanceDataType]. Takes [karooSystem]
+     * because unlike the other two it republishes a *system* data type (distance) rather
+     * than state this extension owns, so it needs to subscribe to the Karoo's own stream.
+     */
+    private val recordingDistanceDataType by lazy { RecordingDistanceDataType(karooSystem, extension) }
+
+    override val types by lazy {
+        listOf(recordingDataType, recordingControlDataType, recordingDistanceDataType)
+    }
 
     // Latest known values, shared across all per-camera monitors. Only updated on an
     // actual Streaming state — a momentary sensor dropout (Idle/Searching/NotAvailable)
@@ -155,8 +166,8 @@ class Insta360Extension : KarooExtension(EXTENSION_ID, "1.0") {
             publishAggregateRecordingState()
         }
 
-        override fun onRecordingChanged(address: String, recording: Boolean) {
-            raiseRecordingAlert(address, recording)
+        override fun onRecordingChanged(address: String, recording: Boolean, reason: RecordingReason) {
+            raiseRecordingAlert(address, recording, reason)
         }
     }
 
@@ -234,7 +245,10 @@ class Insta360Extension : KarooExtension(EXTENSION_ID, "1.0") {
      */
     override fun onBonusAction(actionId: String) {
         when (actionId) {
-            BONUS_ACTION_TOGGLE_RECORDING -> Insta360ConnectionManager.toggleAllCameras(this)
+            BONUS_ACTION_TOGGLE_RECORDING -> Insta360ConnectionManager.toggleAllCameras(
+                this,
+                RecordingReason.Manual.Source.BONUS_ACTION,
+            )
             else -> Log.w(TAG, "Unknown bonus action: $actionId")
         }
     }
@@ -259,14 +273,20 @@ class Insta360Extension : KarooExtension(EXTENSION_ID, "1.0") {
      * but there's no reason not to still try). One alert ID per camera address so two
      * cameras changing state close together don't cut off each other's alert.
      */
-    private fun raiseRecordingAlert(address: String, recording: Boolean) {
+    private fun raiseRecordingAlert(address: String, recording: Boolean, reason: RecordingReason) {
         val name = CameraStore.getCamera(this, address)?.name ?: address
+        // Camera name plus why it happened. The reason is the whole point of the
+        // (2026-09-07) change: "Recording started — Ace Pro 2" tells you nothing you
+        // couldn't see, while "Ace Pro 2 · Speed trigger" answers the question you
+        // actually have when a camera starts itself halfway down a descent. Falls back to
+        // the bare name when there is genuinely nothing to add.
+        val detail = reason.alertText.takeIf { it.isNotBlank() }?.let { "$name · $it" } ?: name
         karooSystem.dispatch(
             InRideAlert(
                 id = "insta360_recording_$address",
                 icon = R.drawable.ic_extension,
                 title = if (recording) "Recording started" else "Recording stopped",
-                detail = name,
+                detail = detail,
                 autoDismissMs = 4_000,
                 backgroundColor = if (recording) R.color.recording_started_bg else R.color.recording_stopped_bg,
                 textColor = R.color.recording_alert_text,
@@ -793,7 +813,7 @@ class Insta360Extension : KarooExtension(EXTENSION_ID, "1.0") {
                     Insta360ConnectionManager.startCapture(
                         address,
                         Insta360ConnectionManager.RecordingOwner.AUTOMATIC,
-                        reason = "$wantingLatches ($lastLatchEvent)",
+                        reason = RecordingReason.Trigger(wantingLatches, lastLatchEvent),
                     )
                 } else if (desired && actual) {
                     outcome = "start-suppressed|owner=$owner"
@@ -828,7 +848,12 @@ class Insta360Extension : KarooExtension(EXTENSION_ID, "1.0") {
                             Log.i(TAG, "[$label] STOP — no latch wants recording ($lastLatchEvent) — sending stop command")
                         }
                     }
-                    val stopReason = lossReason?.let { "data source lost — $it" } ?: "no latch wants recording ($lastLatchEvent)"
+                    // Same split the log lines above already make, now carried into the
+                    // alert too: a data-source-loss stop is a different event from an
+                    // ordinary threshold stop and the rider should be told which it was.
+                    val stopReason = lossReason
+                        ?.let { RecordingReason.DataSourceLost(it) }
+                        ?: RecordingReason.Trigger(wantingLatches, lastLatchEvent)
                     Insta360ConnectionManager.stopCapture(address, reason = stopReason)
                 } else if (!desired && actual) {
                     outcome = "stop-suppressed|owner=$owner"

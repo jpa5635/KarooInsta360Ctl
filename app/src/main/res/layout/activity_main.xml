@@ -166,6 +166,29 @@
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:text="Ride Page Fields"
+            android:textStyle="bold"
+            android:textSize="18sp"
+            android:layout_marginTop="24dp"
+            android:layout_marginBottom="4dp" />
+
+        <CheckBox
+            android:id="@+id/darkFieldThemeCheckbox"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Dark theme for this extension's data fields"
+            android:layout_marginBottom="4dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textSize="12sp"
+            android:text="Applies to the Recording Control tile and the Insta360 Distance field. Karoo doesn't tell an extension whether your ride pages are light or dark, so this has to be set here to match. Full-width and half-width layouts are handled automatically from whichever cell you drop the field into."
+            android:layout_marginBottom="16dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
             android:text="Data Source Loss"
             android:textStyle="bold"
             android:textSize="18sp"

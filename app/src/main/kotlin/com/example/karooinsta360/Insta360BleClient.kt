@@ -50,6 +50,37 @@ class Insta360BleClient(
         const val CMD_CHECK_AUTHORIZATION = 39   // 0x27
         const val CMD_REQUEST_AUTHORIZATION = 86 // 0x56
 
+        /**
+         * **Added (2026-09-07)** — asks the camera what it is currently doing.
+         *
+         * Notifications (below) only report *changes*, so on every connect and reconnect
+         * this is what tells us whether the camera was already rolling before we got
+         * there. Without it, a camera started by its own shutter button before the Karoo
+         * finished connecting looks idle to this app forever.
+         */
+        const val CMD_GET_CURRENT_CAPTURE_STATUS = 15 // 0x0F
+
+        /**
+         * **Added (2026-09-07)** — unsolicited notification codes the camera pushes on
+         * BE82 without being asked, catalogued from `pkg/protocol/messagecode` in
+         * xaionaro-go/insta360ctl. [handleIncoming] already separates these from command
+         * responses (sequence 0 with the from-camera flag set); until now they were only
+         * logged.
+         *
+         * These are what make external recording detectable: the physical shutter button
+         * on the camera, a paired Insta360 remote, or the camera stopping itself.
+         */
+        const val NOTIFY_CAPTURE_AUTO_SPLIT = 0x2002
+        const val NOTIFY_BATTERY_UPDATE = 0x2003
+        const val NOTIFY_BATTERY_LOW = 0x2004
+        const val NOTIFY_SHUTDOWN = 0x2005
+        const val NOTIFY_STORAGE_UPDATE = 0x2006
+        const val NOTIFY_STORAGE_FULL = 0x2007
+        const val NOTIFY_KEY_PRESSED = 0x2008
+        const val NOTIFY_CAPTURE_STOPPED = 0x2009
+        const val NOTIFY_CURRENT_CAPTURE_STATUS = 0x2010
+        const val NOTIFY_SYNC_CAPTURE_BUTTON_TRIGGER = 0x2014
+
         // CheckAuthorization.InitiatorType (protobuf enum, authorization.proto).
         private const val INITIATOR_TYPE_APP = 2
 
@@ -239,6 +270,18 @@ class Insta360BleClient(
     fun stopCapture(): Int {
         Log.i(TAG, "stopCapture() called")
         return sendCommand(CMD_STOP_CAPTURE)
+    }
+
+    /**
+     * **Added (2026-09-07)** — see [CMD_GET_CURRENT_CAPTURE_STATUS]. Sent on connect so a
+     * recording already in progress is picked up rather than assumed away.
+     *
+     * The response arrives through [Listener.onCommandResponse] with this command code;
+     * [com.example.karooinsta360.connection.Insta360ConnectionManager] parses it there.
+     */
+    fun queryCaptureStatus(): Int {
+        Log.i(TAG, "queryCaptureStatus() called")
+        return sendCommand(CMD_GET_CURRENT_CAPTURE_STATUS)
     }
 
     // Authorization/pairing.
