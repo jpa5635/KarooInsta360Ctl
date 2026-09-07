@@ -1134,6 +1134,35 @@ detection, and trigger reasons in alerts.** Four changes:
    distinguished from ordinary threshold stops in the alert as well as the log, since a
    dropped strap is actionable mid-ride in a way a normal stop isn't.
 
+## Building on CI (2026-09-07)
+
+`.github/workflows/build.yml` builds the APK on GitHub's runners: every push to `main`
+uploads it as a run artifact, and pushing a tag like `v0.1.11` also attaches it to a
+GitHub Release. Manual runs via the Actions tab work too.
+
+**One-time setup — the karoo-ext token.** karoo-ext is only published to GitHub Packages,
+and reading from there needs authentication even though the repo is public (same reason
+`~/.gradle/gradle.properties` needs `gpr.user`/`gpr.key` locally). The workflow reads the
+`USERNAME`/`TOKEN` env vars that `settings.gradle.kts` already falls back to, so:
+
+1. Create a classic personal access token with only the **`read:packages`** scope at
+   <https://github.com/settings/tokens>.
+2. Add it to this repo under Settings → Secrets and variables → Actions → New repository
+   secret, named `KAROO_EXT_TOKEN`.
+
+The workflow deliberately does *not* use the automatic `GITHUB_TOKEN`: it's scoped to this
+repository, and reading another organisation's packages with it fails inconsistently.
+
+**Debug, not release.** The workflow builds `assembleDebug`. A release build is unsigned
+without a keystore and Android refuses to install an unsigned APK; the debug signing key
+is generated during the build, which is all a sideloaded Karoo install needs. Signing a
+real release build would mean committing an encrypted keystore and adding
+`signingConfigs` — not worth it for a sideloaded app with one user.
+
+**Remember `versionCode`.** It isn't derived from anything, so bump `versionCode` (and
+`versionName`) in `app/build.gradle.kts` before tagging, or the new APK won't install over
+the old one.
+
 ## Attribution
 
 BLE protocol reverse-engineering courtesy of
