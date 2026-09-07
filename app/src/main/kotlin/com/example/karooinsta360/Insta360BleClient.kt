@@ -124,6 +124,7 @@ class Insta360BleClient(
     private var connectedAnnounced = false
 
     fun connect(device: BluetoothDevice) {
+        Log.i(TAG, "connect(): device=${device.address} sdk=${android.os.Build.VERSION.SDK_INT}")
         deviceAddress = device.address
         gatt = device.connectGatt(context, false, gattCallback, BluetoothDevice.TRANSPORT_LE)
     }
@@ -225,13 +226,41 @@ class Insta360BleClient(
             }
         }
 
+        /**
+         * Pre-API-33 notification callback.
+         *
+         * **(2026-09-07)** This was the only overload implemented, which is very likely
+         * why no inbound frame — not a command response, not a notification — was ever
+         * reaching the app: Android 13 added the three-argument form below, and the
+         * framework calls that one on API 33+. With `targetSdk = 34` on a Karoo running
+         * Android 13 or later, this method may simply never fire, leaving writes working
+         * (they take a different path) and the entire receive side silently dead.
+         *
+         * Both overloads are implemented now and route to the same place. Whichever the
+         * platform calls, the frame gets handled; the log line in [handleIncoming] records
+         * which one it was.
+         */
         @Suppress("DEPRECATION")
         override fun onCharacteristicChanged(g: BluetoothGatt, characteristic: BluetoothGattCharacteristic) {
-            // Was filtered to BE82 only; now accepts frames from every characteristic we
-            // subscribed to above, since which one carries capture status on this model is
-            // exactly the thing that was unknown.
             val data = characteristic.value ?: return
+            Log.i(TAG, "onCharacteristicChanged (legacy overload) from ${characteristic.uuid}")
             handleIncoming(data, characteristic.uuid.toString())
+        }
+
+        /**
+         * API 33+ notification callback. See the deprecated overload above.
+         *
+         * Was filtered to BE82 only before today; now accepts frames from every
+         * characteristic we subscribed to, since which one carries capture status on this
+         * model is exactly what's unknown.
+         */
+        override fun onCharacteristicChanged(
+            g: BluetoothGatt,
+            characteristic: BluetoothGattCharacteristic,
+            value: ByteArray,
+        ) {
+            Log.i(TAG, "onCharacteristicChanged (API33 overload) from ${characteristic.uuid}")
+            handleIncoming(value, characteristic.uuid.toString())
         }
     }
 

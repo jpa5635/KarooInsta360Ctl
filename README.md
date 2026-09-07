@@ -1253,6 +1253,26 @@ the top instead of overlapping the digits. The stock header stays disabled: with
 understood, a label we draw is a label that definitely appears. The cost is the field icon
 the stock header would have shown.
 
+**Fixed (2026-09-07, 0.1.16) — the app was receiving no BLE frames at all.** A logcat with
+the 10-second status poll running showed every write succeeding and *nothing* coming back:
+no response to `GetCurrentCaptureStatus`, no notifications, not one inbound frame in twenty
+seconds. That rules out the earlier theories — a camera that selectively ignores one
+command still answers others, and a subscription problem on one characteristic doesn't
+silence all of them.
+
+`Insta360BleClient` implemented only the deprecated two-argument
+`BluetoothGattCallback.onCharacteristicChanged`. Android 13 added a three-argument form
+that passes the value directly, and on API 33+ the framework calls that one. With
+`targetSdk = 34` on a Karoo running Android 13 or later, the legacy overload may never
+fire — leaving writes working, since those take a different path, and the entire receive
+side silently dead. That matches the observed log exactly.
+
+Both overloads are now implemented and route to the same handler, each logging which one
+the platform actually called. If frames start arriving, this was the root cause all along,
+and the earlier fixes (subscribing to every notify characteristic, classifying frames by
+code rather than sequence) were necessary but not sufficient — they were correcting what
+happened to frames that were never being delivered.
+
 ## Attribution
 
 BLE protocol reverse-engineering courtesy of
