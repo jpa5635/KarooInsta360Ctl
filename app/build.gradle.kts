@@ -16,13 +16,36 @@ android {
         // versionCode just needs to keep increasing by 1 each build — it doesn't need to
         // encode the versionName scheme. versionName itself is 0.1.<build number> rather
         // than 0.<build number> going forward, per request.
-        versionCode = 13
-        versionName = "0.1.13"
+        versionCode = 14
+        versionName = "0.1.14"
+    }
+
+    // Added (2026-09-07). Without this, every build signs with whatever auto-generated
+    // debug keystore happens to exist on the machine doing the building — a different one
+    // on each GitHub Actions runner, and a third on the dev Mac. Android refuses to update
+    // an installed app when the signing key changes, so each new APK had to be uninstalled
+    // and reinstalled, losing all saved cameras and profiles every time.
+    //
+    // A committed keystore fixes that: same key everywhere, so updates install over the
+    // top and app data survives. It uses Android's standard debug credentials
+    // (androiddebugkey / "android"), which are public by design — this is a sideload key,
+    // not a secret, and must not be reused for anything published.
+    signingConfigs {
+        create("shared") {
+            storeFile = file("shared-debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
     }
 
     buildTypes {
+        debug {
+            signingConfig = signingConfigs.getByName("shared")
+        }
         release {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("shared")
         }
     }
 

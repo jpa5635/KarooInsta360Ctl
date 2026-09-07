@@ -1194,6 +1194,20 @@ The custom distance field is also now named just "Distance" rather than "Insta36
 Distance": the extension name already appears next to it in the field picker, so the
 prefix read as a stutter and sorted it away from the stock field it replaces.
 
+**Fixed (2026-09-07) — every new APK required uninstalling the old one first.** Android's
+debug keystore is generated on demand by whichever machine runs the build, so CI runners
+were signing each APK with a fresh key and the dev Mac with another. A changed signing key
+makes Android reject an update outright (`INSTALL_FAILED_UPDATE_INCOMPATIBLE`), which
+meant uninstalling and losing every saved camera and profile on each install.
+
+`app/shared-debug.keystore` is now committed and used by both the debug and release build
+types, so every build everywhere signs identically and updates install over the top. It
+uses Android's standard debug credentials (`androiddebugkey` / `android`) — public by
+design, worthless to anyone, and not to be reused for anything published.
+
+One last uninstall is needed when moving from a previously-installed build to the first
+one signed with this key; after that, updates work normally.
+
 **Fixed (2026-09-07, 0.1.13) — the two things still broken in 0.1.12.**
 
 *Camera-side recording still undetected.* The 0.1.12 fix corrected how inbound frames were
