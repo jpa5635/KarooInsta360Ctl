@@ -3,6 +3,10 @@
     <string name="extension_name">Insta360 Camera</string>
     <string name="action_toggle_recording">Toggle Camera Recording</string>
     <string name="recording_dot_description">Recording</string>
-    <string name="recording_distance_name">Insta360 Distance</string>
+    <!-- Just "Distance", matching Karoo's own field name. The extension's own name is
+         already shown alongside it in the field picker, so prefixing it here read as
+         "Insta360 Insta360 Distance" and made it sort away from the stock Distance field
+         it's meant to replace. -->
+    <string name="recording_distance_name">Distance</string>
     <string name="recording_distance_description">Ride distance, with a flashing red dot while any saved camera is recording</string>
 </resources>

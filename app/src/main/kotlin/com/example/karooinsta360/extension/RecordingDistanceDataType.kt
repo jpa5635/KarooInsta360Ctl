@@ -73,8 +73,20 @@ class RecordingDistanceDataType(
 ) : DataTypeImpl(extension, TYPE_ID) {
 
     override fun startStream(emitter: Emitter<StreamState>) {
+        // (2026-09-07) Logged because this is the load-bearing half of the field and its
+        // failure mode is silent: if Karoo never subscribes here, or the system distance
+        // stream never produces a value, formatDataTypeId below has nothing to format and
+        // the field renders as a bare dot on an empty cell with no error anywhere.
+        Log.i(TAG, "startStream: subscribing to ${DataType.Type.DISTANCE}")
+        var logged = 0
         val job = CoroutineScope(Dispatchers.Default).launch {
             karooSystem.streamDataFlow(DataType.Type.DISTANCE).collect { state ->
+                // First few of each run only — this fires at the stream's own rate and
+                // would otherwise flood logcat for the whole ride.
+                if (logged < 5) {
+                    logged++
+                    Log.i(TAG, "startStream: upstream state=$state")
+                }
                 when (state) {
                     is StreamState.Streaming -> emitter.onNext(
                         state.copy(
@@ -93,7 +105,10 @@ class RecordingDistanceDataType(
                 }
             }
         }
-        emitter.setCancellable { job.cancel() }
+        emitter.setCancellable {
+            Log.i(TAG, "startStream: cancelled")
+            job.cancel()
+        }
     }
 
     override fun startView(context: Context, config: ViewConfig, emitter: ViewEmitter) {
@@ -107,6 +122,7 @@ class RecordingDistanceDataType(
                 formatDataTypeId = DataType.Type.DISTANCE,
             ),
         )
+        Log.i(TAG, "startView: sent formatDataTypeId=${DataType.Type.DISTANCE}")
 
         // Put the dot opposite whichever side the rider aligned their data to, so it can
         // never sit on top of the digits. RemoteViews can't move a child, so the layout

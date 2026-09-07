@@ -1163,6 +1163,37 @@ real release build would mean committing an encrypted keystore and adding
 `versionName`) in `app/build.gradle.kts` before tagging, or the new APK won't install over
 the old one.
 
+**Fixed (2026-09-07) — camera-side recording was never detected, and the Distance field
+was misnamed.**
+
+`Insta360BleClient.handleIncoming` classified an inbound frame as an unsolicited
+notification only when `sequence == 0`. That is not how the protocol works: insta360ctl
+identifies unsolicited frames by `seq == 255`, or by there being no pending request for
+that sequence. So every notification the camera pushed with a non-zero sequence — which
+is to say, the ones that mattered — went to `onCommandResponse` and was dropped, and
+starting a recording on the camera body changed nothing in the extension. Classification
+is now by command code instead: notification codes start at 0x2000 and command codes never
+approach it, so the split is unambiguous whatever sequence numbering a given model uses.
+
+Three supporting changes, since a feature that depends on frames you never asked for needs
+to fail loudly rather than silently:
+
+- Every frame received from a camera is logged with code, sequence and raw hex, so
+  "nothing was decoded" is distinguishable from "nothing arrived".
+- `handleCaptureStatusPayload` used to require the payload to begin with the exact tag
+  byte for field 1 and discarded anything else unread. It now walks the whole message and
+  logs every varint field it finds, so a single logcat trace identifies which field
+  actually carries capture state on the Ace Pro 2.
+- A 10-second per-camera status poll now runs alongside notifications. Redundant when
+  notifications work — a poll that agrees with current state changes nothing and raises no
+  alert — but it bounds how long the indicator can be wrong if a notification is missed or
+  simply never sent by this model. Given the entire point of the indicator is to be
+  trustworthy, a BLE write every ten seconds is a cheap premium.
+
+The custom distance field is also now named just "Distance" rather than "Insta360
+Distance": the extension name already appears next to it in the field picker, so the
+prefix read as a stutter and sorted it away from the stock field it replaces.
+
 ## Attribution
 
 BLE protocol reverse-engineering courtesy of

@@ -38,6 +38,9 @@ import java.util.concurrent.CopyOnWriteArraySet
 object Insta360ConnectionManager {
     private const val TAG = "Insta360ConnMgr"
     private const val SCAN_RETRY_DELAY_MS = 5_000L
+
+    /** See [statusPoll]. Ten seconds bounds how stale the recording indicator can get. */
+    private const val STATUS_POLL_INTERVAL_MS = 10_000L
     // "_hi" because this used to be "recording_state" at IMPORTANCE_LOW — see
     // ensureNotificationChannel's doc comment for why the ID had to change, not just
     // the importance value, to actually fix anything for an existing install.
@@ -413,6 +416,38 @@ object Insta360ConnectionManager {
         notifyChanged(address)
     }
 
+    /**
+     * **Added (2026-09-07, fix)** — polls every connected camera's capture status on a
+     * timer, independently of notifications.
+     *
+     * Notifications should make this redundant, and when they work it is: a poll that
+     * agrees with what we already believe changes nothing and announces nothing (see
+     * [applyExternalRecordingState]). But camera-side detection failing silently is
+     * exactly the failure this whole feature exists to prevent, and a 10-second poll
+     * bounds how long a mismatch can persist even if a notification is missed, malformed,
+     * or never sent by this particular model. One small BLE write per camera per ten
+     * seconds is a cheap insurance premium against the indicator lying.
+     */
+    private val statusPoll = object : Runnable {
+        override fun run() {
+            val connected = clients.keys.filter { isConnected(it) }
+            connected.forEach { clients[it]?.queryCaptureStatus() }
+            if (connected.isNotEmpty()) {
+                handler.postDelayed(this, STATUS_POLL_INTERVAL_MS)
+            } else {
+                statusPollRunning = false
+            }
+        }
+    }
+
+    @Volatile private var statusPollRunning = false
+
+    private fun ensureStatusPollRunning() {
+        if (statusPollRunning) return
+        statusPollRunning = true
+        handler.postDelayed(statusPoll, STATUS_POLL_INTERVAL_MS)
+    }
+
     private fun notifyChanged(address: String) {
         listeners.forEach { it.onCameraStateChanged(address) }
     }
@@ -500,17 +535,18 @@ object Insta360ConnectionManager {
      * Best-effort read of a capture-status payload, from either the 0x2010 notification or
      * the response to [Insta360BleClient.CMD_GET_CURRENT_CAPTURE_STATUS].
      *
-     * **This parse is not yet confirmed against the Ace Pro 2 and deliberately fails
+     * **The schema is still unconfirmed for the Ace Pro 2 and this deliberately fails
      * closed.** insta360ctl parses 0x2010 for *storage* fields on the GO 3 despite the
-     * code being named for capture status, so the payload evidently carries several
-     * things and the protobuf field numbering may well differ by model. Rather than
-     * guessing a schema, this looks only for field 1 as a varint — the conventional slot
-     * for a state enum — and ignores the payload entirely if it isn't shaped that way,
-     * leaving our existing belief untouched rather than replacing it with a wrong one.
+     * code being named for capture status, so the payload carries several things and the
+     * field numbering may differ by model.
      *
-     * Every payload is logged in hex regardless. Ride with the camera once, start and stop
-     * it by hand, and the logcat lines will show what the real layout is; then this
-     * becomes a real parser instead of a heuristic.
+     * **(2026-09-07, fix)** The first version of this only accepted a payload beginning
+     * with the exact tag byte for "field 1, varint" and bailed on anything else, which
+     * meant a payload with any other field first was discarded without ever being looked
+     * at. It now walks the whole message with [parseVarintFields] and logs every varint
+     * field it finds, so one ride's logcat is enough to identify which field actually
+     * carries capture state. Reading field 1 remains the assumption; the log line is what
+     * makes that assumption cheap to correct.
      */
     private fun handleCaptureStatusPayload(address: String, payload: ByteArray, source: String) {
         val hex = payload.joinToString(" ") { "%02X".format(it) }
@@ -518,15 +554,67 @@ object Insta360ConnectionManager {
             Log.i(TAG, "[$address] capture status ($source): empty payload, ignoring")
             return
         }
-        // Protobuf tag byte for field 1, varint wire type.
-        if (payload[0].toInt() and 0xFF != 0x08) {
-            Log.i(TAG, "[$address] capture status ($source): unrecognised layout raw=$hex — belief unchanged")
+
+        val fields = parseVarintFields(payload)
+        Log.i(TAG, "[$address] capture status ($source): raw=$hex varintFields=$fields")
+
+        // Field 1 is the conventional slot for a state enum, and is what this reads. If
+        // the Ace Pro 2 turns out to put capture state somewhere else, the log line above
+        // now shows every varint field in the payload, so the fix is a one-line change to
+        // the key looked up here rather than another round of guessing.
+        val state = fields[1]
+        if (state == null) {
+            Log.i(TAG, "[$address] capture status ($source): no field 1 — belief unchanged")
             return
         }
-        val value = payload.getOrNull(1)?.toInt()?.and(0x7F) ?: return
-        val recording = value != 0
-        Log.i(TAG, "[$address] capture status ($source): field1=$value -> recording=$recording raw=$hex")
+        val recording = state != 0L
+        Log.i(TAG, "[$address] capture status ($source): field1=$state -> recording=$recording")
         applyExternalRecordingState(address, recording, RecordingReason.CameraSide)
+    }
+
+    /**
+     * Walks a protobuf payload and returns every varint field it can read, keyed by field
+     * number. Length-delimited and fixed-width fields are skipped over rather than
+     * decoded — capture state is a varint, and anything else in the message is noise for
+     * this purpose.
+     *
+     * Returns whatever it managed to read before hitting something malformed, so a
+     * partially-understood payload still yields its leading fields.
+     */
+    private fun parseVarintFields(payload: ByteArray): Map<Int, Long> {
+        val out = LinkedHashMap<Int, Long>()
+        var i = 0
+        while (i < payload.size) {
+            val tag = payload[i].toInt() and 0xFF
+            if (tag == 0) break
+            val fieldNumber = tag shr 3
+            val wireType = tag and 0x07
+            i++
+            when (wireType) {
+                0 -> {
+                    var value = 0L
+                    var shift = 0
+                    while (i < payload.size) {
+                        val b = payload[i].toInt() and 0xFF
+                        value = value or ((b and 0x7F).toLong() shl shift)
+                        i++
+                        if (b and 0x80 == 0) break
+                        shift += 7
+                        if (shift > 63) return out
+                    }
+                    out[fieldNumber] = value
+                }
+                1 -> i += 8
+                2 -> {
+                    if (i >= payload.size) return out
+                    val len = payload[i].toInt() and 0xFF
+                    i += 1 + len
+                }
+                5 -> i += 4
+                else -> return out
+            }
+        }
+        return out
     }
 
     /**
@@ -686,6 +774,7 @@ object Insta360ConnectionManager {
                     // clients[address] rather than the local `client`, which isn't
                     // initialised yet from inside its own listener.
                     clients[address]?.queryCaptureStatus()
+                    ensureStatusPollRunning()
                 }
 
                 override fun onDisconnected() {

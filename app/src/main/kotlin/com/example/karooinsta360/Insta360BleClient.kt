@@ -81,6 +81,15 @@ class Insta360BleClient(
         const val NOTIFY_CURRENT_CAPTURE_STATUS = 0x2010
         const val NOTIFY_SYNC_CAPTURE_BUTTON_TRIGGER = 0x2014
 
+        /**
+         * **Added (2026-09-07, fix)** — every notification code in the Insta360 protocol
+         * lives at 0x2000 and above, while every command code is well below it (start
+         * capture is 4, authorization 0x27/0x56). See [handleIncoming] for why the code
+         * range, rather than the sequence number, is what now decides whether an inbound
+         * frame is a notification.
+         */
+        const val NOTIFY_CODE_FLOOR = 0x2000
+
         // CheckAuthorization.InitiatorType (protobuf enum, authorization.proto).
         private const val INITIATOR_TYPE_APP = 2
 
@@ -380,7 +389,31 @@ class Insta360BleClient(
 
         reassemblyBuffer = null
 
-        if (fromCamera && sequence == 0) {
+        // Log every inbound frame from the camera, decoded or not. Camera-side recording
+        // detection is the one feature here that depends entirely on frames we did not
+        // ask for, so "nothing happened" needs to be distinguishable from "nothing
+        // arrived" without attaching a BLE sniffer.
+        if (fromCamera) {
+            Log.i(
+                TAG,
+                "RX cmd=0x${commandCode.toString(16)} seq=$sequence len=${combined.size} " +
+                    "raw=${combined.joinToString(" ") { "%02X".format(it) }}",
+            )
+        }
+
+        // **Fixed (2026-09-07)** — this used to require `sequence == 0` to treat a frame
+        // as an unsolicited notification, which is why manually starting a recording on
+        // the camera was never noticed: insta360ctl identifies unsolicited frames by
+        // seq == 255 *or* by there being no pending request for that sequence, not by
+        // seq == 0, so anything the Ace Pro 2 pushed with a non-zero sequence was being
+        // handed to onCommandResponse and quietly dropped.
+        //
+        // Deciding by code range instead is unambiguous in both directions: notification
+        // codes start at 0x2000 and command codes never reach it, so no legitimate
+        // command response can be mistaken for a notification regardless of what
+        // sequence numbering the camera uses.
+        val isNotification = commandCode >= NOTIFY_CODE_FLOOR
+        if (fromCamera && (isNotification || sequence == 0)) {
             listener.onNotification(commandCode, combined)
         } else {
             listener.onCommandResponse(commandCode, sequence, combined)
