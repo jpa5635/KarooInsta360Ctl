@@ -1273,6 +1273,10 @@ and the earlier fixes (subscribing to every notify characteristic, classifying f
 code rather than sequence) were necessary but not sufficient — they were correcting what
 happened to frames that were never being delivered.
 
+**Changed (2026-09-07, 0.1.17) — Distance field value is no longer bold.** It was set bold
+on the assumption that a data field value should stand out; against Karoo's own fields it
+just looked heavier than everything beside it. Regular weight matches.
+
 ## Attribution
 
 BLE protocol reverse-engineering courtesy of

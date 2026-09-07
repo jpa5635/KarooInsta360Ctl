@@ -38,7 +38,6 @@
             android:gravity="center"
             android:includeFontPadding="false"
             android:maxLines="1"
-            android:textStyle="bold"
             android:textSize="28sp"
             android:text="--" />
 
