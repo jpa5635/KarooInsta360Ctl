@@ -28,8 +28,7 @@
             android:includeFontPadding="false"
             android:maxLines="1"
             android:fontFamily="sans-serif"
-            android:textFontWeight="300"
-            android:textStyle="normal"
+            android:textFontWeight="700"
             android:textSize="11sp"
             android:text="DISTANCE" />
 
@@ -45,8 +44,13 @@
              weight override, so they resolve to the same Medium face. The 0.1.20 change to
              sans-serif-light was a no-op for exactly that reason.
 
-             If Regular still reads heavy, 200 gives Light. For a condensed numeric face
-             there is a real family, "ibm-plex-sans-condensed", but only at weight 600. -->
+             If Regular still reads heavy, 200 gives Light.
+
+             Width is a separate axis from weight: textScaleX condenses the glyphs
+             horizontally without touching the stroke. Used here in preference to the one
+             genuinely condensed family on the device, "ibm-plex-sans-condensed", because
+             that ships only at weight 600 — switching to it would undo the weight fix
+             above and bring the thickness straight back. -->
         <TextView
             android:id="@+id/distanceValue"
             android:layout_width="match_parent"
@@ -58,6 +62,7 @@
             android:fontFamily="sans-serif"
             android:textFontWeight="300"
             android:textStyle="normal"
+            android:textScaleX="0.92"
             android:textSize="28sp"
             android:text="--" />
 

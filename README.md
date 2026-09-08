@@ -1349,6 +1349,16 @@ Worth knowing for future field work: `sans-serif-condensed` is an alias to plain
 `sans-serif` here and gets you nothing condensed. There is a real condensed family,
 `ibm-plex-sans-condensed`, but it ships only at weight 600.
 
+**Changed (2026-09-07, 0.1.22) — Distance value narrowed, label bolded.** The value now
+carries `textScaleX="0.92"`, condensing the glyphs horizontally without altering stroke
+weight. That is deliberately not the same as switching to `ibm-plex-sans-condensed`: the
+one genuinely condensed family on this device ships only at weight 600, so using it would
+undo 0.1.21's weight fix and bring the thickness straight back. Width and weight are
+separate axes and are now controlled separately.
+
+The label moves to `textFontWeight="700"`, which is SemiBold under this device's IBM Plex
+mapping (900 is available if it needs to be heavier still).
+
 ## Attribution
 
 BLE protocol reverse-engineering courtesy of
