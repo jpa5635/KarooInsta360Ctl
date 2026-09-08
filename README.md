@@ -1277,6 +1277,32 @@ happened to frames that were never being delivered.
 on the assumption that a data field value should stand out; against Karoo's own fields it
 just looked heavier than everything beside it. Regular weight matches.
 
+**Changed (2026-09-07, 0.1.18) — authorize on connect; the extension has never been an
+authorized client.** A connect-time logcat settled several open questions at once. The
+Karoo reports `sdk=32`, so it's Android 12 and the deprecated `onCharacteristicChanged`
+overload is the correct one — the API-33 theory behind 0.1.16 was wrong (both overloads
+are still implemented; harmless). Service discovery shows this camera exposes exactly one
+notify characteristic, BE82, so subscribing to every notify characteristic found nothing
+the original code was missing either. Both CCCD writes completed without warnings, so
+notifications are genuinely enabled. And still: every write accepted, not one inbound frame
+in twenty seconds.
+
+`checkAuthorization()` has been in this codebase since early on, but nothing ever called
+it — it was reachable only from a manual entry point. So the extension has spent its whole
+existence talking to the camera as an unauthorized client. insta360ctl authorizes on
+connect, and a camera that honours simple capture commands from an unauthorized peer while
+telling it nothing in return is consistent with everything observed. It is also consistent
+with this file's own earlier note in `sendCommand` about the camera silently discarding
+commands until the frame length field was corrected.
+
+`CheckAuthorization` (0x27) is now sent on connect, before the status query. Command
+responses are logged at info with their decoded varint fields rather than at debug, and a
+warning fires five seconds after connect if nothing whatsoever has been received, so
+silence is stated rather than inferred. The response is deliberately only logged, not acted
+on: the `CheckAuthorizationResp` enum values aren't known for this model, and following up
+with `RequestAuthorization` (0x56, which prompts on the camera) is a small change once a
+real response has been seen.
+
 ## Attribution
 
 BLE protocol reverse-engineering courtesy of

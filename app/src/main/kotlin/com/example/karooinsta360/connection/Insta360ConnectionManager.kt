@@ -41,6 +41,9 @@ object Insta360ConnectionManager {
 
     /** See [statusPoll]. Ten seconds bounds how stale the recording indicator can get. */
     private const val STATUS_POLL_INTERVAL_MS = 10_000L
+
+    /** How long after connect to wait before logging that the camera has said nothing. */
+    private const val SILENCE_WARN_MS = 5_000L
     // "_hi" because this used to be "recording_state" at IMPORTANCE_LOW — see
     // ensureNotificationChannel's doc comment for why the ID had to change, not just
     // the importance value, to actually fix anything for an existing install.
@@ -442,6 +445,9 @@ object Insta360ConnectionManager {
 
     @Volatile private var statusPollRunning = false
 
+    /** Set by the first inbound frame of any kind. See the silence warning on connect. */
+    @Volatile private var anyFrameReceived = false
+
     private fun ensureStatusPollRunning() {
         if (statusPollRunning) return
         statusPollRunning = true
@@ -771,10 +777,42 @@ object Insta360ConnectionManager {
                     // response lands in onCommandResponse below. The false here is only a
                     // placeholder until it does.
                     setRecording(address, false)
+
+                    // **(2026-09-07)** Authorize before anything else.
+                    //
+                    // checkAuthorization() has existed here since early on but nothing
+                    // ever called it automatically, so the extension has been talking to
+                    // the camera as an unauthorized client for its whole life. A logcat of
+                    // the status poll showed every write accepted at GATT level and not one
+                    // frame ever coming back — no command responses, no notifications, in
+                    // twenty seconds. insta360ctl authorizes on connect for exactly this
+                    // reason, and an unauthorized client being allowed to fire simple
+                    // capture commands while being told nothing in return matches what we
+                    // observed precisely.
+                    //
+                    // If a response to 0x27 arrives, that alone is the breakthrough: it
+                    // means the receive path works and everything downstream (capture
+                    // status, camera-side notifications) becomes reachable.
+                    clients[address]?.checkAuthorization()
+
                     // clients[address] rather than the local `client`, which isn't
                     // initialised yet from inside its own listener.
                     clients[address]?.queryCaptureStatus()
                     ensureStatusPollRunning()
+
+                    // If nothing at all has come back by now, say so plainly rather than
+                    // leaving silence to be interpreted. Silence here means the camera is
+                    // ignoring us at the application layer, which is a different problem
+                    // from a payload we can't parse.
+                    handler.postDelayed({
+                        if (!anyFrameReceived) {
+                            Log.w(
+                                TAG,
+                                "[$address] no BLE frame received ${SILENCE_WARN_MS}ms after connect — " +
+                                    "camera is accepting writes but not responding at all",
+                            )
+                        }
+                    }, SILENCE_WARN_MS)
                 }
 
                 override fun onDisconnected() {
@@ -786,13 +824,27 @@ object Insta360ConnectionManager {
                 }
 
                 override fun onCommandResponse(commandCode: Int, sequence: Int, payload: ByteArray) {
-                    Log.d(TAG, "[$address] Response cmd=$commandCode seq=$sequence len=${payload.size}")
+                    anyFrameReceived = true
+                    Log.i(
+                        TAG,
+                        "[$address] Response cmd=0x${commandCode.toString(16)} seq=$sequence " +
+                            "len=${payload.size} varintFields=${parseVarintFields(payload)}",
+                    )
+                    if (commandCode == Insta360BleClient.CMD_CHECK_AUTHORIZATION) {
+                        // Enum values in CheckAuthorizationResp aren't known for this model
+                        // yet, so this logs the decoded fields rather than acting on a
+                        // guess. Once one real response is seen, deciding whether to follow
+                        // up with RequestAuthorization (0x56, which prompts on the camera
+                        // itself) is a small change.
+                        Log.i(TAG, "[$address] CheckAuthorization response — fields above decide next step")
+                    }
                     if (commandCode == Insta360BleClient.CMD_GET_CURRENT_CAPTURE_STATUS) {
                         handleCaptureStatusPayload(address, payload, source = "status query")
                     }
                 }
 
                 override fun onNotification(notificationCode: Int, payload: ByteArray) {
+                    anyFrameReceived = true
                     handleCameraNotification(address, notificationCode, payload)
                 }
 
