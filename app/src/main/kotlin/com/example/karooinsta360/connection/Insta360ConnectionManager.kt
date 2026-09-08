@@ -13,6 +13,7 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
@@ -44,6 +45,13 @@ object Insta360ConnectionManager {
 
     /** How long after connect to wait before logging that the camera has said nothing. */
     private const val SILENCE_WARN_MS = 5_000L
+
+    /**
+     * Window after a commanded change during which camera reports are treated as
+     * confirmation rather than news. Long enough to cover a BLE round trip and the
+     * 10s status poll landing just afterwards.
+     */
+    private const val LOCAL_CHANGE_GRACE_MS = 12_000L
     // "_hi" because this used to be "recording_state" at IMPORTANCE_LOW — see
     // ensureNotificationChannel's doc comment for why the ID had to change, not just
     // the importance value, to actually fix anything for an existing install.
@@ -322,6 +330,7 @@ object Insta360ConnectionManager {
             return
         }
         client.startCapture()
+        noteLocalChange(address, true)
         setRecording(address, true, owner)
         Log.i(TAG, "startCapture($address) SENT — owner=$owner reason=${reason.logText}")
         onGenuineRecordingAction(address, recording = true, reason = reason)
@@ -335,6 +344,7 @@ object Insta360ConnectionManager {
             return
         }
         client.stopCapture()
+        noteLocalChange(address, false)
         setRecording(address, false)
         Log.i(TAG, "stopCapture($address) SENT — reason=${reason.logText}")
         onGenuineRecordingAction(address, recording = false, reason = reason)
@@ -447,6 +457,24 @@ object Insta360ConnectionManager {
 
     /** Set by the first inbound frame of any kind. See the silence warning on connect. */
     @Volatile private var anyFrameReceived = false
+
+    /**
+     * **Added (2026-09-07)** — per-camera record of a state change we just commanded:
+     * the state we asked for, and when.
+     *
+     * Without this, stopping from the Karoo field produced two events, not one. We raise
+     * the alert immediately with the real reason ("Manually from Karoo field"), and then
+     * the camera's own confirmation — a CaptureStopped notification, or the next status
+     * poll — arrives and is indistinguishable from someone having pressed the button on
+     * the camera, so it gets announced a second time as "On the camera". The rider sees
+     * the wrong attribution, because it is the one that arrives last.
+     *
+     * A confirmation of something we asked for is not an independent event. Camera reports
+     * are therefore ignored for [LOCAL_CHANGE_GRACE_MS] after we command a change: whether
+     * they agree (a confirmation, already announced) or disagree (our command is still in
+     * flight and the camera hasn't caught up), there is nothing new to tell the rider.
+     */
+    private val pendingLocalChange = ConcurrentHashMap<String, Pair<Boolean, Long>>()
 
     private fun ensureStatusPollRunning() {
         if (statusPollRunning) return
@@ -628,8 +656,27 @@ object Insta360ConnectionManager {
      * believe — otherwise every status query would re-announce a recording that has been
      * running happily for twenty minutes.
      */
+    private fun noteLocalChange(address: String, recording: Boolean) {
+        pendingLocalChange[address] = recording to SystemClock.elapsedRealtime()
+    }
+
     private fun applyExternalRecordingState(address: String, recording: Boolean, reason: RecordingReason) {
         if (isRecording(address) == recording) return
+
+        val pending = pendingLocalChange[address]
+        if (pending != null) {
+            val age = SystemClock.elapsedRealtime() - pending.second
+            if (age < LOCAL_CHANGE_GRACE_MS) {
+                Log.i(
+                    TAG,
+                    "[$address] ignoring camera report recording=$recording ${age}ms after our own " +
+                        "commanded change to ${pending.first} — not an independent event",
+                )
+                return
+            }
+            pendingLocalChange.remove(address)
+        }
+
         Log.i(TAG, "[$address] external recording state -> $recording (${reason.logText})")
         setRecording(address, recording, RecordingOwner.NONE)
         onGenuineRecordingAction(address, recording, reason)

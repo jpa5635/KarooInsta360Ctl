@@ -1371,6 +1371,21 @@ The trade-off is explicit: the value is now marginally smaller than a stock fiel
 same cell size. Matching exactly would mean giving up the label, since both cannot occupy
 the same row.
 
+**Fixed (2026-09-07, 0.1.24) — a manual stop was being reported as "On the camera".**
+Stopping from the Karoo field raised the correct alert, and then the camera's own
+confirmation — a `CaptureStopped` notification, or the next status poll — arrived and was
+handled as an independent camera-side event, producing a second alert with the wrong
+attribution. Being last, that was the one the rider saw.
+
+A confirmation of something we asked for is not an independent event. `startCapture` and
+`stopCapture` now record what they commanded and when, and camera reports arriving within
+12 seconds are logged but not announced — whether they agree (a confirmation, already
+announced) or disagree (the command is still in flight and the camera hasn't caught up).
+
+Worth noting what this bug implies: something was attributing a change to the camera at
+all, which means BLE frames are now being received. The MTU negotiation in 0.1.19 appears
+to have been the fix for the silence.
+
 ## Attribution
 
 BLE protocol reverse-engineering courtesy of
