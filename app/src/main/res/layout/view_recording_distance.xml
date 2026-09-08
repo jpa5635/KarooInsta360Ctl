@@ -27,9 +27,16 @@
             android:gravity="center_horizontal"
             android:includeFontPadding="false"
             android:maxLines="1"
+            android:fontFamily="sans-serif"
+            android:textStyle="normal"
             android:textSize="11sp"
             android:text="DISTANCE" />
 
+        <!-- Explicit typeface, not just the absence of bold. Removing textStyle in 0.1.17
+             left this at the platform default for a RemoteViews TextView, which on this
+             device still renders heavier than Karoo's own fields. sans-serif-light is a
+             genuine weight below regular; swap to "sans-serif" if it reads too thin
+             against the rest of the page. -->
         <TextView
             android:id="@+id/distanceValue"
             android:layout_width="match_parent"
@@ -38,6 +45,8 @@
             android:gravity="center"
             android:includeFontPadding="false"
             android:maxLines="1"
+            android:fontFamily="sans-serif-light"
+            android:textStyle="normal"
             android:textSize="28sp"
             android:text="--" />
 

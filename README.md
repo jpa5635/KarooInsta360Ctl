@@ -1325,6 +1325,14 @@ now go through a queue drained from `onCharacteristicWrite`. Beyond the connect 
 this matters in normal use: an automatic trigger firing while any other command was in
 flight would have silently done nothing.
 
+**Changed (2026-09-07, 0.1.20) — Distance value uses an explicitly lighter typeface.**
+Dropping `textStyle="bold"` in 0.1.17 left the value at the platform default for a
+RemoteViews TextView, which on this device still reads heavier than Karoo's own fields —
+the absence of bold is not the same as a light weight. It now sets
+`fontFamily="sans-serif-light"` explicitly, with `textStyle="normal"` so no inherited style
+can reapply weight. If that reads too thin on the page, `"sans-serif"` is the middle
+setting.
+
 ## Attribution
 
 BLE protocol reverse-engineering courtesy of
