@@ -1303,6 +1303,28 @@ on: the `CheckAuthorizationResp` enum values aren't known for this model, and fo
 with `RequestAuthorization` (0x56, which prompts on the camera) is a small change once a
 real response has been seen.
 
+**Fixed (2026-09-07, 0.1.19) — MTU was never negotiated, and concurrent writes were being
+dropped.** The connect log from 0.1.18 showed `CheckAuthorization` going out and, as
+before, nothing at all coming back. It also showed something new: the status query issued
+18ms later returned `writeCharacteristic() returned false — write not queued`.
+
+Two distinct bugs, both real:
+
+*No MTU negotiation.* insta360ctl's documented sequence is connect, discover services, set
+MTU to 517, subscribe, authorize. We skipped the MTU step entirely and ran at the 23-byte
+default — 20 usable bytes per packet. Our `CheckAuthorization` frame is 37 bytes, so
+Android had to send it as a queued long write, which peripherals frequently reject
+silently; and any response longer than 20 bytes could not be sent back to us at all. A
+camera that accepts every write and answers none is precisely what that combination
+produces. MTU is now requested after discovery, with subscriptions deferred to
+`onMtuChanged` so they happen on the negotiated link.
+
+*Unserialized writes.* Android permits one outstanding GATT operation per connection;
+issuing a second while the first is in flight returns false and loses the frame. Commands
+now go through a queue drained from `onCharacteristicWrite`. Beyond the connect sequence
+this matters in normal use: an automatic trigger firing while any other command was in
+flight would have silently done nothing.
+
 ## Attribution
 
 BLE protocol reverse-engineering courtesy of

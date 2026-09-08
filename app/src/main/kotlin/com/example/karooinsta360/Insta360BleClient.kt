@@ -90,6 +90,10 @@ class Insta360BleClient(
          */
         const val NOTIFY_CODE_FLOOR = 0x2000
 
+        /** Matches insta360ctl, which sets 517 before subscribing. */
+        const val REQUESTED_MTU = 517
+        const val DEFAULT_MTU = 23
+
         // CheckAuthorization.InitiatorType (protobuf enum, authorization.proto).
         private const val INITIATOR_TYPE_APP = 2
 
@@ -122,6 +126,20 @@ class Insta360BleClient(
      */
     private val pendingSubscriptions = ArrayDeque<BluetoothGattCharacteristic>()
     private var connectedAnnounced = false
+    private var currentMtu = DEFAULT_MTU
+
+    /**
+     * **Added (2026-09-07)** — frames waiting to be written, and whether one is in flight.
+     *
+     * Android's GATT stack permits exactly one outstanding operation per connection:
+     * writeCharacteristic returns false if another is still in progress, and the frame is
+     * simply lost. The connect sequence exposed this immediately — CheckAuthorization
+     * followed 18ms later by GetCurrentCaptureStatus, and the second write was refused.
+     * Any two commands issued close together hit the same problem, which for this app
+     * means a trigger firing while another command is in flight silently does nothing.
+     */
+    private val pendingWrites = ArrayDeque<ByteArray>()
+    private var writeInFlight = false
 
     fun connect(device: BluetoothDevice) {
         Log.i(TAG, "connect(): device=${device.address} sdk=${android.os.Build.VERSION.SDK_INT}")
@@ -130,6 +148,10 @@ class Insta360BleClient(
     }
 
     fun disconnect() {
+        synchronized(pendingWrites) {
+            pendingWrites.clear()
+            writeInFlight = false
+        }
         gatt?.disconnect()
         gatt?.close()
         gatt = null
@@ -199,6 +221,31 @@ class Insta360BleClient(
                 announceConnected()
                 return
             }
+
+            // **Added (2026-09-07)** — negotiate a larger ATT MTU before subscribing.
+            //
+            // insta360ctl's documented sequence is: connect, discover services, set MTU to
+            // 517, subscribe, then authorize. We were skipping the MTU step entirely and
+            // running at the 23-byte default, i.e. 20 usable bytes per packet. Two
+            // consequences, both matching what the logs showed: our 37-byte
+            // CheckAuthorization frame had to go out as an Android queued long write,
+            // which peripherals often reject silently, and — more importantly — any
+            // response longer than 20 bytes simply cannot be sent back to us. A camera
+            // that accepts every write and answers none is exactly what that produces.
+            //
+            // Subscriptions are deferred to onMtuChanged so they happen on the negotiated
+            // link rather than the default one.
+            if (!g.requestMtu(REQUESTED_MTU)) {
+                Log.w(TAG, "requestMtu($REQUESTED_MTU) refused — subscribing at default MTU")
+                subscribeNext(g)
+            }
+        }
+
+        override fun onMtuChanged(g: BluetoothGatt, mtu: Int, status: Int) {
+            // Proceed regardless of status: a refused MTU bump leaves us where we already
+            // were, which is worth trying rather than aborting the connection over.
+            Log.i(TAG, "onMtuChanged: mtu=$mtu status=$status (usable payload=${mtu - 3})")
+            currentMtu = mtu
             subscribeNext(g)
         }
 
@@ -224,6 +271,9 @@ class Insta360BleClient(
                 Log.e(TAG, "Write to ${characteristic.uuid} FAILED, status=$status")
                 listener.onError("BLE write failed, status=$status")
             }
+            // Link is free again — send whatever queued up behind this one.
+            synchronized(pendingWrites) { writeInFlight = false }
+            pumpWrites()
         }
 
         /**
@@ -343,7 +393,7 @@ class Insta360BleClient(
         val frame = header + protobufPayload
         Log.i(TAG, "Writing frame (seq=$sequence): ${frame.joinToString(" ") { "%02X".format(it) }}")
 
-        // NOTE: on this specific camera (an "Ace Pro 2"), BE81's advertised GATT
+        // NOTE (write type): on this specific camera (an "Ace Pro 2"), BE81's advertised GATT
         // properties are Read(0x02)+Write(0x08) only — it does NOT advertise
         // WriteNR(0x04). WRITE_TYPE_DEFAULT (write WITH response) is therefore the
         // only mode this characteristic actually declares support for; forcing
@@ -353,15 +403,58 @@ class Insta360BleClient(
         // so it's likely silently dropped by the camera's BLE stack. Reverted.
         char.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
         @Suppress("DEPRECATION")
+        // Queued rather than written straight out: see [pendingWrites]. Android permits
+        // one outstanding GATT operation, so issuing a second command before the first
+        // completes loses it silently.
+        enqueueWrite(frame)
+        return sequence
+    }
+
+    /** Adds a frame to the write queue and starts it if the link is idle. */
+    private fun enqueueWrite(frame: ByteArray) {
+        synchronized(pendingWrites) {
+            pendingWrites.addLast(frame)
+            if (writeInFlight) {
+                Log.i(TAG, "Write queued behind one in flight (depth=${pendingWrites.size})")
+                return
+            }
+        }
+        pumpWrites()
+    }
+
+    private fun pumpWrites() {
+        val frame = synchronized(pendingWrites) {
+            if (writeInFlight) return
+            val next = pendingWrites.removeFirstOrNull() ?: return
+            writeInFlight = true
+            next
+        }
+
+        val g = gatt
+        val char = writeChar
+        if (g == null || char == null) {
+            synchronized(pendingWrites) { writeInFlight = false }
+            listener.onError("write dropped: no active GATT connection")
+            return
+        }
+
+        if (frame.size > currentMtu - 3) {
+            // Not fatal — Android will fall back to a queued long write — but worth
+            // recording, since a peripheral rejecting long writes is invisible otherwise.
+            Log.w(TAG, "Frame is ${frame.size}B, larger than MTU-3 (${currentMtu - 3}) — long write")
+        }
+
+        char.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+        @Suppress("DEPRECATION")
         char.value = frame
         @Suppress("DEPRECATION")
         val initiated = g.writeCharacteristic(char)
         Log.i(TAG, "writeCharacteristic() call returned: $initiated")
         if (!initiated) {
+            synchronized(pendingWrites) { writeInFlight = false }
             listener.onError("writeCharacteristic() returned false — write not queued")
+            pumpWrites()
         }
-
-        return sequence
     }
 
     // Recording control.
