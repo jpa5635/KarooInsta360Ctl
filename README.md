@@ -1386,6 +1386,23 @@ Worth noting what this bug implies: something was attributing a change to the ca
 all, which means BLE frames are now being received. The MTU negotiation in 0.1.19 appears
 to have been the fix for the silence.
 
+**Fixed (2026-09-07, 0.1.25) — 0.1.24 broke camera-side start detection.** The grace
+window added to stop manual stops being misreported suppressed *every* camera report for
+12 seconds after a commanded change, including `KeyPressed`. Press record on the camera
+shortly after using the Karoo field and the notification was swallowed — and since
+notifications are one-shot, the event was then lost permanently rather than merely delayed.
+
+The two kinds of report are not equivalent. A `KeyPressed` or `CaptureStopped`
+notification is the camera reporting that a person did something; it is never a
+confirmation of our own command. A polled status response can be answered with state
+captured before our command landed, and that stale answer is what was being announced as
+"On the camera" after a manual stop. The window now applies to polled status only, and is
+cut from 12s to 5s — it only needs to cover a BLE round trip, and every millisecond of it
+delays a genuine camera-side change.
+
+A camera report that agrees with our state now also clears the pending marker, so a real
+camera-side action moments after a commanded change is treated on its own terms.
+
 ## Attribution
 
 BLE protocol reverse-engineering courtesy of

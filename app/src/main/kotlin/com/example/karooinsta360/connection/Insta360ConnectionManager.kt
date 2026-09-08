@@ -47,11 +47,12 @@ object Insta360ConnectionManager {
     private const val SILENCE_WARN_MS = 5_000L
 
     /**
-     * Window after a commanded change during which camera reports are treated as
-     * confirmation rather than news. Long enough to cover a BLE round trip and the
-     * 10s status poll landing just afterwards.
+     * Window after a commanded change during which a *polled* status is treated as
+     * possibly stale rather than as news. Deliberately short: it only needs to cover a
+     * BLE round trip, and every millisecond of it is time a genuine camera-side change
+     * would be reported late.
      */
-    private const val LOCAL_CHANGE_GRACE_MS = 12_000L
+    private const val LOCAL_CHANGE_GRACE_MS = 5_000L
     // "_hi" because this used to be "recording_state" at IMPORTANCE_LOW — see
     // ensureNotificationChannel's doc comment for why the ID had to change, not just
     // the importance value, to actually fix anything for an existing install.
@@ -603,7 +604,7 @@ object Insta360ConnectionManager {
         }
         val recording = state != 0L
         Log.i(TAG, "[$address] capture status ($source): field1=$state -> recording=$recording")
-        applyExternalRecordingState(address, recording, RecordingReason.CameraSide)
+        applyExternalRecordingState(address, recording, RecordingReason.CameraSide, polled = true)
     }
 
     /**
@@ -660,21 +661,47 @@ object Insta360ConnectionManager {
         pendingLocalChange[address] = recording to SystemClock.elapsedRealtime()
     }
 
-    private fun applyExternalRecordingState(address: String, recording: Boolean, reason: RecordingReason) {
-        if (isRecording(address) == recording) return
-
-        val pending = pendingLocalChange[address]
-        if (pending != null) {
-            val age = SystemClock.elapsedRealtime() - pending.second
-            if (age < LOCAL_CHANGE_GRACE_MS) {
-                Log.i(
-                    TAG,
-                    "[$address] ignoring camera report recording=$recording ${age}ms after our own " +
-                        "commanded change to ${pending.first} — not an independent event",
-                )
-                return
-            }
+    private fun applyExternalRecordingState(
+        address: String,
+        recording: Boolean,
+        reason: RecordingReason,
+        polled: Boolean = false,
+    ) {
+        if (isRecording(address) == recording) {
+            // Camera agrees with us. If we were waiting on confirmation of a commanded
+            // change, this is it — clear the pending marker so a genuine camera-side
+            // action a moment later isn't mistaken for more of the same.
             pendingLocalChange.remove(address)
+            return
+        }
+
+        // **Narrowed (2026-09-07, 0.1.25)** — the grace window applies to *polled* status
+        // only, never to notifications.
+        //
+        // 0.1.24 suppressed every camera report for 12 seconds after a commanded change,
+        // which broke the feature it was protecting: press record on the camera shortly
+        // after using the Karoo field and the KeyPressed notification was swallowed. Since
+        // notifications are one-shot, that event was then lost permanently.
+        //
+        // The two cases are genuinely different. A KeyPressed or CaptureStopped
+        // notification is the camera telling us a person did something — it is never a
+        // confirmation of our own command. A status poll can easily be answered with state
+        // captured before our command landed, and that stale answer is what was being
+        // announced as "On the camera" after a manual stop.
+        if (polled) {
+            val pending = pendingLocalChange[address]
+            if (pending != null) {
+                val age = SystemClock.elapsedRealtime() - pending.second
+                if (age < LOCAL_CHANGE_GRACE_MS) {
+                    Log.i(
+                        TAG,
+                        "[$address] ignoring polled status recording=$recording ${age}ms after our " +
+                            "commanded change to ${pending.first} — likely captured before it landed",
+                    )
+                    return
+                }
+                pendingLocalChange.remove(address)
+            }
         }
 
         Log.i(TAG, "[$address] external recording state -> $recording (${reason.logText})")
