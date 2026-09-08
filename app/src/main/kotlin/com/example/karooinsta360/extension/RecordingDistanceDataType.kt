@@ -111,7 +111,12 @@ class RecordingDistanceDataType(
         // at in this cell. The first version ignored it in favour of hardcoded sizes per
         // cell shape, which is why this field didn't match its neighbours. Use the value
         // the system hands us.
-        val valueTextSizeSp = config.textSize.toFloat()
+        // Scaled down from ViewConfig.textSize rather than used raw. That value is the
+        // size Karoo renders at in this cell when *it* draws the header, but we draw our
+        // own label inside the same space, so the value has one row less height than the
+        // figure assumes — at full size the bottoms of the digits were being clipped by
+        // the field's lower boundary.
+        val valueTextSizeSp = config.textSize * VALUE_SIZE_RATIO
 
         // Header scaled off the same number rather than fixed, so it stays proportionate
         // across cell sizes. Floored so it doesn't vanish in a small cell.
@@ -207,6 +212,9 @@ class RecordingDistanceDataType(
         const val BLINK_PERIOD_MS = 1_000L
         private const val METERS_PER_MILE = 1609.344
         private const val LABEL_SIZE_RATIO = 0.30f
+
+        /** See where this is used: compensates for the label row our layout adds. */
+        private const val VALUE_SIZE_RATIO = 0.88f
         private const val MIN_LABEL_SP = 10f
     }
 }

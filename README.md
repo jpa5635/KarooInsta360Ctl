@@ -1359,6 +1359,18 @@ separate axes and are now controlled separately.
 The label moves to `textFontWeight="700"`, which is SemiBold under this device's IBM Plex
 mapping (900 is available if it needs to be heavier still).
 
+**Fixed (2026-09-07, 0.1.23) — bottom of the Distance value was clipped.** Two causes,
+both ours. `includeFontPadding="false"` on the value strips the padding that accommodates
+a font's full vertical extent, leaving rounded glyph bottoms and the decimal point flush
+against the edge; it is back on. And the value was rendered at `ViewConfig.textSize`
+verbatim, but that figure is what Karoo uses when *it* draws the header — our layout puts
+its own label row inside the same space, so the value had one row less height than the size
+assumed. It is now scaled by `VALUE_SIZE_RATIO` (0.88).
+
+The trade-off is explicit: the value is now marginally smaller than a stock field's at the
+same cell size. Matching exactly would mean giving up the label, since both cannot occupy
+the same row.
+
 ## Attribution
 
 BLE protocol reverse-engineering courtesy of
