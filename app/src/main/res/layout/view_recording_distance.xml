@@ -28,15 +28,25 @@
             android:includeFontPadding="false"
             android:maxLines="1"
             android:fontFamily="sans-serif"
+            android:textFontWeight="300"
             android:textStyle="normal"
             android:textSize="11sp"
             android:text="DISTANCE" />
 
-        <!-- Explicit typeface, not just the absence of bold. Removing textStyle in 0.1.17
-             left this at the platform default for a RemoteViews TextView, which on this
-             device still renders heavier than Karoo's own fields. sans-serif-light is a
-             genuine weight below regular; swap to "sans-serif" if it reads too thin
-             against the rest of the page. -->
+        <!-- Weight, not family, is the lever on this device.
+             /system/etc/fonts.xml remaps "sans-serif" to IBM Plex Sans with non-standard
+             weight mappings: 100=Thin, 200=Light, 300=Regular, 400=Medium, 700=SemiBold,
+             900=Bold. A TextView defaults to weight 400, so we were rendering in IBM Plex
+             *Medium* while Karoo's own fields use Regular — that was the extra thickness.
+             textFontWeight=300 selects Regular under this mapping.
+
+             Note that fontFamily can't fix this: "sans-serif-light", "sans-serif-thin" and
+             "sans-serif-condensed" are all aliased straight to "sans-serif" here with no
+             weight override, so they resolve to the same Medium face. The 0.1.20 change to
+             sans-serif-light was a no-op for exactly that reason.
+
+             If Regular still reads heavy, 200 gives Light. For a condensed numeric face
+             there is a real family, "ibm-plex-sans-condensed", but only at weight 600. -->
         <TextView
             android:id="@+id/distanceValue"
             android:layout_width="match_parent"
@@ -45,7 +55,8 @@
             android:gravity="center"
             android:includeFontPadding="false"
             android:maxLines="1"
-            android:fontFamily="sans-serif-light"
+            android:fontFamily="sans-serif"
+            android:textFontWeight="300"
             android:textStyle="normal"
             android:textSize="28sp"
             android:text="--" />

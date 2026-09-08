@@ -1333,6 +1333,22 @@ the absence of bold is not the same as a light weight. It now sets
 can reapply weight. If that reads too thin on the page, `"sans-serif"` is the middle
 setting.
 
+**Fixed (2026-09-07, 0.1.21) — Distance value weight, properly this time.** A dump of
+`/system/etc/fonts.xml` on the Karoo shows Hammerhead remaps `sans-serif` to IBM Plex Sans
+with non-standard weight mappings: 100=Thin, 200=Light, 300=Regular, 400=Medium,
+700=SemiBold, 900=Bold. A TextView requests weight 400 by default, so this field was
+rendering in IBM Plex **Medium** while Karoo's own fields use Regular — hence the number
+looking consistently thicker than every field beside it.
+
+It also explains why 0.1.20 changed nothing: `sans-serif-light` is aliased directly to
+`sans-serif` in that file with no weight override, exactly like `sans-serif-thin` and
+`sans-serif-condensed`, so it resolved to the same Medium face. Family was never the lever;
+weight is. `textFontWeight="300"` now selects Regular under this device's mapping.
+
+Worth knowing for future field work: `sans-serif-condensed` is an alias to plain
+`sans-serif` here and gets you nothing condensed. There is a real condensed family,
+`ibm-plex-sans-condensed`, but it ships only at weight 600.
+
 ## Attribution
 
 BLE protocol reverse-engineering courtesy of
