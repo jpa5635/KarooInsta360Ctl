@@ -1,158 +1,181 @@
 # karoo-insta360
 
-A [Hammerhead Karoo](https://www.hammerhead.io) extension that controls one or more
-Insta360 cameras over BLE — starting and stopping recording automatically from your ride
-data, or manually from the head unit, and showing on your ride pages whether a camera is
+A [Hammerhead Karoo](https://www.hammerhead.io) extension that controls Insta360 cameras
+over BLE. It starts and stops recording automatically from live ride data, gives you
+manual control from the head unit, and shows on your ride pages whether a camera is
 actually rolling.
 
 Built on [karoo-ext](https://github.com/hammerheadnav/karoo-ext). BLE protocol
 reverse-engineering courtesy of
 [xaionaro-go/insta360ctl](https://github.com/xaionaro-go/insta360ctl).
 
-## What it does
+---
 
-**Records the parts of a ride worth keeping.** Action cameras have two failure modes:
-record the whole ride and spend an evening scrubbing through four hours of nothing, or
-record nothing and miss the moment. This extension starts recording when something is
-happening — you're above threshold, descending fast, or a car is closing on you — and
-stops when it isn't.
+## Installing
 
-**Triggers** are evaluated continuously against live Karoo ride data:
+Download the APK from
+[Releases](https://github.com/jpa5635/KarooInsta360Ctl/releases) and sideload it:
 
-| Trigger | Fires on |
+```
+adb install -r karoo-insta360-<version>-debug.apk
+```
+
+Open the app on the Karoo once and grant Bluetooth permissions when prompted.
+
+---
+
+## Cameras
+
+Put the camera in Bluetooth pairing mode, then tap **Scan for Cameras**. The list shows
+every nearby Bluetooth device rather than filtering to Insta360 ones, so pick yours by
+name and tap **Add**. If it never appears, **Add by Address** takes a MAC directly.
+
+Tap a saved camera to open its Configure screen, where you can rename it, remove it, and
+use **Start** / **Stop** to confirm control works. Do that before configuring triggers —
+it separates "my thresholds are wrong" from "the camera isn't connected".
+
+### Multiple cameras
+
+Everything is per camera. Add as many as you like, and each gets its own trigger settings
+within a profile — a bar-mounted camera on radar only, a rear-facing one on speed and
+radar, and so on. Manual controls (data field, bonus button) always act on **all** saved
+cameras at once: start every connected idle camera, or stop every recording one.
+
+---
+
+## Profiles
+
+Triggers do not live on cameras. They live on **profiles**, and a profile also chooses
+which of your saved cameras it applies to at all.
+
+Exactly one profile is active at a time, and it alone drives automatic recording. That is
+the point: a Road profile and a Gravel Race profile become a one-tap switch instead of
+re-entering every threshold, and each can use a different set of cameras with different
+thresholds per camera.
+
+Tap **Create New Profile**, name it, then open it to select its cameras and configure each
+one's triggers. Back on the main screen, **Apply** it. The active profile is named at the
+top — if that says "none", nothing automatic will happen.
+
+---
+
+## Starting and stopping recording
+
+### Manual: the data field
+
+Add **Insta360 Recording Control** to any ride page. It's tappable: tap to start every
+connected camera, tap again to stop every recording one. It fills red while any camera is
+recording, so it doubles as an indicator.
+
+### Manual: a bonus button
+
+Bind the **Toggle Camera Recording** action to a controller button in the Karoo's own
+button settings, for override without looking at the screen.
+
+If you use SRAM AXS controls, note that assigning a Karoo Action to a button removes its
+native AXS shift mapping entirely, and only Karoo Actions support separate short and long
+press. Dedicating one bonus button to this is the usual compromise.
+
+### Manual: on the camera itself
+
+Pressing the shutter on the camera works normally, and the extension notices and updates
+its fields to match.
+
+Recordings started by any manual method are **never** stopped by the automatic triggers.
+Only a recording the triggers themselves started gets auto-stopped, and that protection
+lasts as long as the recording does. Stopping manually also briefly pauses that camera's
+triggers, so they can't immediately restart it while a trigger condition is still true.
+
+### Automatic: triggers
+
+Configured per camera inside a profile. Each trigger has its own start and stop values
+plus its own sustain durations.
+
+**Heart rate** and **power** form a single *effort* latch — enable either or both, and
+either can start a recording.
+
+**Speed** and **radar** are each independent latches.
+
+A camera records while **any** latch wants it recording, and stops only once none do.
+
+#### Heart rate, power, speed
+
+| Setting | Meaning |
 |---|---|
-| Heart rate | bpm at or above a start value, sustained |
-| Power | watts at or above a start value, sustained |
-| Speed | speed at or above a start value, sustained |
-| Radar | a vehicle approaching within a set distance |
+| Start threshold | Start once the value rises to or above this |
+| Stop threshold | Stop once the value falls below this |
+| Start seconds | How long it must stay at/above the start value first |
+| Stop seconds | How long it must stay below the stop value first |
 
-Each has separate start and stop thresholds and separate sustain durations, so a brief
-spike doesn't start a recording and a momentary dip doesn't end one. Heart rate and power
-are combined into a single *effort* latch; speed and radar are independent. A camera
-records while any latch wants it recording.
+Start and stop are separate values on purpose. Set both to 300 W and you get a recording
+that starts and stops repeatedly as your power wobbles across the line; setting stop lower
+than start gives you hysteresis. The sustain durations are usually asymmetric too — short
+to start so you don't miss the beginning of an effort, long to stop so a brief soft-pedal
+doesn't cut the clip in half.
 
-**Manual control** is available in-ride two ways: a tappable data field on any ride page,
-and a "Toggle Camera Recording" action you can bind to a controller button. A recording
-you start manually is never stopped by the automatic triggers — only recordings the
-triggers themselves started get auto-stopped.
+Speed thresholds are entered in mph or km/h, chosen per camera.
 
-**Ride page fields**, all available in light or dark to match your pages:
+#### Radar
 
-- **Insta360 Recording Control** — tappable; fills red while any camera is recording
-- **Distance** — ride distance with a flashing red dot while recording, so the indicator
-  costs you no extra page space
-- **Insta360 Recording** — a plain numeric field, 1 while any camera is recording
+Radar works differently, and it's worth understanding before you set it.
 
-**Multiple cameras** are supported throughout. Everything is keyed per camera, and
-triggers are configured per camera within a profile.
+| Setting | Meaning |
+|---|---|
+| Start distance | Start once the nearest tracked vehicle is within this (ft or m) |
+| Start seconds | How long a vehicle must be within that distance first |
+| Stop seconds | How long radar must track **no vehicle at all** before stopping |
 
-## How it's organised
+The stop side is not a distance. Once radar has started a recording, any vehicle still on
+radar at any distance keeps it going — the recording ends only after radar reports nothing
+tracked for the stop duration. That's deliberate: a car that has passed you is still worth
+recording until it's gone.
 
-Two concepts, and the split matters:
+### Data source loss
 
-**Cameras** are the physical devices you've paired. A camera holds its address and name,
-and nothing about when to record.
+If a trigger's data source stops updating entirely — a dropped HR strap, a dead sensor,
+lost radar — that trigger can't tell whether effort or speed actually fell, and would hold
+a recording open indefinitely. **Data Source Loss** sets how long to tolerate that before
+treating the source as lost and releasing the trigger. Any other still-live trigger on the
+same camera is unaffected and can keep recording on its own. 0 waits forever.
 
-**Profiles** hold all the trigger settings, and choose which of your saved cameras they
-apply to. Exactly one profile is active at a time, and it drives all automatic recording.
-This is what makes a Road profile and a Gravel Race profile a one-tap switch rather than a
-re-entry of every threshold — with different cameras and different thresholds per camera
-if you want.
+---
 
-## Setup walkthrough
+## Tracking recording state
 
-A worked configuration: one Ace Pro on the bars, recording hard efforts and close passes.
+Three data fields, all addable to any ride page.
 
-### 1. Install
+**Insta360 Recording Control** — tappable, fills red while any camera is recording.
 
-Grab the APK from [Releases](https://github.com/jpa5635/KarooInsta360Ctl/releases) and
-sideload it:
+**Distance** — ride distance with a red dot flashing beside it while recording. Use it in
+place of your usual Distance field and the recording indicator costs you no page space at
+all.
 
-```
-adb install -r karoo-insta360-0.1.25-debug.apk
-```
+**Insta360 Recording** — a plain numeric field, 1 while any camera is recording and 0 when
+none are. Useful if you'd rather build your own layout around it.
 
-Open the app once on the Karoo and grant Bluetooth permissions when prompted.
+All of them render in light or dark. Karoo doesn't tell an extension whether your ride
+pages are light or dark, so set it yourself under **Ride Page Fields**. Full-width and
+half-width layouts are handled automatically from whichever cell you drop the field into.
 
-### 2. Add the camera
-
-Put the camera in Bluetooth pairing mode, then in the app tap **Scan for Cameras**. The
-scan lists every nearby Bluetooth device rather than filtering to Insta360 ones — filtering
-proved unreliable across models — so pick yours by name and tap **Add**. If it doesn't
-appear, **Add by Address** takes a MAC directly.
-
-Tap the camera to open its Configure screen and use **Start** / **Stop** to confirm control
-works before going further. The camera should respond within a second or so. Give it a name
-here too if you have more than one.
-
-### 3. Create a profile
-
-Back on the main screen, tap **Create New Profile** and name it — "Road", say. Open it, and
-tick the camera you just added so this profile considers it.
-
-### 4. Set triggers
-
-Open the camera's entry within the profile. For the worked example:
-
-**Effort trigger — heart rate.** Enable it. Start at 155 bpm, stop at 140 bpm, sustain 10
-seconds to start and 45 seconds to stop.
-
-The gap between start and stop values is deliberate hysteresis: with both at 155 you'd get
-a recording that starts and stops repeatedly as your heart rate wobbles across the line.
-The asymmetric sustain matters too — 10 seconds to start means you don't miss the beginning
-of an effort, while 45 seconds to stop means a brief soft-pedal mid-climb doesn't cut the
-clip in half.
-
-**Radar trigger.** Enable it, start distance 100 metres. Every car that comes past gets
-recorded, which is the footage you'll want if anything ever goes wrong.
-
-**Speed trigger.** Enable it, start at 45 km/h, stop at 35 km/h, 3 seconds to start and 20
-to stop. Fast descents, without recording every flat mile.
-
-Leave power off unless you want it — heart rate and power share the effort latch, so
-enabling both means either can start a recording.
-
-### 5. Apply the profile
-
-Back out to the main screen and **Apply** the profile. The active profile is named at the
-top; if it says "none", nothing automatic will happen.
-
-### 6. Add the fields
-
-On the Karoo, edit a ride page and add **Insta360 Recording Control** — a half-width cell
-is plenty. Replace your existing Distance field with this extension's **Distance** to get
-the recording dot without spending a cell on it.
-
-Then in the app's **Ride Page Fields** section, set the dark theme toggle to match your
-ride pages. Karoo doesn't tell an extension whether pages are light or dark, so this can't
-be detected.
-
-### 7. Optional: a controller button
-
-In the Karoo's own button settings, bind **Toggle Camera Recording** to a controller button
-for manual override without looking at the screen.
-
-Note if you use SRAM AXS controls: assigning a Karoo Action to a button removes its native
-AXS shift mapping entirely, and only Karoo Actions support separate short and long press.
-Dedicating one bonus button to this is the usual compromise.
-
-### 8. Data source loss
-
-In **Data Source Loss**, set a timeout in minutes. If a trigger's data source stops
-updating entirely — a dropped HR strap, a dead radar — that trigger can't tell that effort
-or speed actually fell, and would otherwise hold a recording open indefinitely. This bounds
-it. Ten minutes is reasonable; 0 waits forever.
+---
 
 ## Notifications
 
-Every start and stop raises an in-ride alert stating the reason — "Speed trigger",
-"Manually from Karoo field", "On the camera" — so you always know why a camera changed
-state. Status bar notifications for the same events are optional, under **Notifications**.
+**In-ride alerts** appear on every start and stop, and always state the reason — "Speed
+trigger", "Radar trigger", "Manually from Karoo field", "Manually from Karoo button", "On
+the camera". So when a camera starts itself mid-descent, you know which trigger did it
+rather than guessing.
+
+**Status bar notifications** for the same events are optional, under **Notifications**.
+They cover every start and stop from any source and apply to all saved cameras. On Android
+13+ this prompts for notification permission the first time you enable it.
+
+---
 
 ## Building
 
-Requires a GitHub personal access token with `read:packages` scope, since karoo-ext is
-published to GitHub Packages. Put it in `~/.gradle/gradle.properties`:
+karoo-ext is published to GitHub Packages, so a GitHub personal access token with
+`read:packages` scope is required. Put it in `~/.gradle/gradle.properties`:
 
 ```
 gpr.user=your-github-username
@@ -167,20 +190,17 @@ gradle assembleDebug
 
 Output lands in `app/build/outputs/apk/debug/`.
 
-### CI
-
 `.github/workflows/build.yml` builds on every push to `main` and uploads the APK as a run
-artifact; pushing a tag like `v0.1.26` also attaches it to a release. It needs the same
-token as a repository secret named `KAROO_EXT_TOKEN` (Settings → Secrets and variables →
-Actions).
+artifact; pushing a tag like `v0.1.27` also attaches it to a release. It needs the same
+token as a repository secret named `KAROO_EXT_TOKEN`.
 
-Builds are signed with the committed `app/shared-debug.keystore` so that every build, local
-or CI, installs over the previous one instead of requiring an uninstall. It uses Android's
-standard debug credentials, which are public by design — do not reuse it for anything
+Builds are signed with the committed `app/shared-debug.keystore` so every build, local or
+CI, installs over the previous one instead of requiring an uninstall. It uses Android's
+standard debug credentials, which are public by design — don't reuse it for anything
 published.
 
 Bump `versionCode` and `versionName` in `app/build.gradle.kts` before tagging; nothing
-derives them automatically, and Android refuses to install over an equal or higher version.
+derives them automatically.
 
 ## Project structure
 
@@ -189,7 +209,7 @@ app/src/main/
   kotlin/com/example/karooinsta360/
     Insta360BleClient.kt              # BLE protocol: framing, MTU, write queue, notifications
     connection/
-      Insta360ConnectionManager.kt    # per-camera connection state, recording state, alerts
+      Insta360ConnectionManager.kt    # per-camera connection and recording state, alerts
     extension/
       Insta360Extension.kt            # karoo-ext service: trigger evaluation, bonus action
       RecordingControlDataType.kt     # tappable recording tile
@@ -200,17 +220,3 @@ app/src/main/
     RecordingReason.kt                # why a recording started or stopped
   res/xml/extension_info.xml          # data types and bonus actions declared to Karoo
 ```
-
-## Known limitations
-
-- Camera-side recording detection depends on a capture-status payload whose schema isn't
-  fully confirmed for the Ace Pro 2. See the development log.
-- The Distance field draws its own value rather than using Karoo's numeric treatment, so it
-  is close to but not pixel-identical with stock fields.
-- Field light/dark is an app-wide setting, not per-placement, since data fields have no
-  per-instance configuration.
-
-## Development log
-
-Protocol reverse-engineering, dead ends, and the reasoning behind non-obvious decisions:
-[docs/DEVELOPMENT-LOG.md](docs/DEVELOPMENT-LOG.md).
