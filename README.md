@@ -13,14 +13,29 @@ reverse-engineering courtesy of
 
 ## Installing
 
-Download the APK from
-[Releases](https://github.com/jpa5635/KarooInsta360Ctl/releases) and sideload it:
+The APK lives on the
+[Releases](https://github.com/jpa5635/KarooInsta360Ctl/releases) page. How you get it onto
+the head unit depends on which Karoo you have.
+
+**Karoo 3 — Hammerhead Companion app.** No computer needed. On your phone, open the
+Releases page in a browser, long-press the `karoo-insta360-<version>-debug.apk` link and
+share it with the Hammerhead Companion app. Alternatively, download the APK first and
+share the file itself from your phone's file manager. The Companion app shows a
+transferring screen and an install prompt appears on the Karoo — tap **Install** there to
+finish. The Karoo has to be switched on and on Wi-Fi for this to work.
+
+**Karoo 2 — adb.** The Companion app route isn't available, so sideload over USB with the
+Karoo in developer mode:
 
 ```
 adb install -r karoo-insta360-<version>-debug.apk
 ```
 
-Open the app on the Karoo once and grant Bluetooth permissions when prompted.
+Either way, open the app on the Karoo once afterwards and grant Bluetooth permissions when
+prompted.
+
+Updates install over the top of an existing copy — every build is signed with the same
+committed keystore — so saved cameras and profiles survive.
 
 ---
 
