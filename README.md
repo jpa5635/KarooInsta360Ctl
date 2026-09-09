@@ -26,9 +26,12 @@ Open the app on the Karoo once and grant Bluetooth permissions when prompted.
 
 ## Cameras
 
-Put the camera in Bluetooth pairing mode, then tap **Scan for Cameras**. The list shows
-every nearby Bluetooth device rather than filtering to Insta360 ones, so pick yours by
-name and tap **Add**. If it never appears, **Add by Address** takes a MAC directly.
+Switch the camera on with Bluetooth enabled — no pairing mode, and no pairing with the
+Karoo itself, since the extension connects straight over BLE and authorises with the
+camera's own handshake rather than through Android's pairing. Then tap **Scan for
+Cameras**. The list shows every nearby Bluetooth device rather than filtering to Insta360
+ones, so pick yours by name and tap **Add**. A camera that isn't advertising a name won't
+appear at all; if yours doesn't, **Add by Address** takes a MAC directly.
 
 Tap a saved camera to open its Configure screen, where you can rename it, remove it, and
 use **Start** / **Stop** to confirm control works. Do that before configuring triggers —
