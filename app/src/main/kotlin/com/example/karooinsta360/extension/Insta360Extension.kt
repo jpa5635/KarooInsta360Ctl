@@ -371,11 +371,9 @@ class Insta360Extension : KarooExtension(EXTENSION_ID, "1.0") {
         activeRideProfileJob?.cancel()
         activeRideProfileJob = CoroutineScope(Dispatchers.Default).launch {
             karooSystem.consumerFlow<ActiveRideProfile>().collect { event ->
-                // event.profile.name: verify this against the compiled karoo-ext AAR on
-                // first build — every other named model in this library (Bike, SavedDevice,
-                // etc.) uses `name: String` for its display name, but ActiveRideProfile's
-                // `RideProfile` type wasn't directly inspectable while writing this. If the
-                // property is actually named differently, this is a one-line compile error.
+                // Verified against karoo-ext 1.1.9 sources: ActiveRideProfile holds
+                // `val profile: RideProfile`, and RideProfile exposes `val name: String`
+                // as its display name (@since 1.1.5).
                 val karooProfileName = event.profile.name
                 val match = ProfileStore.findProfileForKarooProfileName(this@Insta360Extension, karooProfileName)
                 if (match == null) {

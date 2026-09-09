@@ -59,13 +59,18 @@ top — if that says "none", nothing automatic will happen.
 
 ### Switching profiles automatically
 
-Applying a profile by hand is one tap, but it is one tap you have to remember before every
-ride. Instead, open a profile and fill in **Default for Karoo Profile** with the name of
-the Karoo ride profile it belongs to — `Road`, `Gravel`, `MTB`, whatever yours are called
-on the launcher — then press **Save**.
+Whichever profile you apply stays applied — across rides and across reboots — so there is
+nothing to do before an ordinary ride. Applying by hand only comes up when you actually
+want a different profile than last time, and that is the case worth automating: swapping
+bikes or ride types means remembering to change it here too, and forgetting means riding
+on the wrong thresholds.
 
-From then on, selecting that ride profile on the Karoo launcher applies this profile for
-you, before the ride starts or partway through it if you switch mid-ride.
+Open a profile and fill in **Default for Karoo Profile** with the name of the Karoo ride
+profile it belongs to — `Road`, `Gravel`, `MTB`, whatever yours are called on the launcher
+— then press **Save**. From then on, selecting that ride profile on the launcher applies
+this profile for you, before the ride starts or partway through it if you switch mid-ride.
+You can still apply a profile by hand at any time; the next ride-profile change just
+overrides it again.
 
 A few details worth knowing:
 
