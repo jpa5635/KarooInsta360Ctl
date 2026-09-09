@@ -57,6 +57,28 @@ Tap **Create New Profile**, name it, then open it to select its cameras and conf
 one's triggers. Back on the main screen, **Apply** it. The active profile is named at the
 top — if that says "none", nothing automatic will happen.
 
+### Switching profiles automatically
+
+Applying a profile by hand is one tap, but it is one tap you have to remember before every
+ride. Instead, open a profile and fill in **Default for Karoo Profile** with the name of
+the Karoo ride profile it belongs to — `Road`, `Gravel`, `MTB`, whatever yours are called
+on the launcher — then press **Save**.
+
+From then on, selecting that ride profile on the Karoo launcher applies this profile for
+you, before the ride starts or partway through it if you switch mid-ride.
+
+A few details worth knowing:
+
+- It is a free-text field, not a picker, because the Karoo offers extensions no way to
+  list your ride profiles — only to report which one is currently selected. Spelling is
+  therefore on you, though matching ignores case and surrounding spaces, so `road`,
+  `Road`, and ` Road ` are all the same name.
+- Two profiles cannot claim the same Karoo ride profile. Saving a name another profile
+  already uses is refused, and the message names the profile holding it.
+- Leave it blank to unlink; any number of profiles can be unlinked at once.
+- If the selected ride profile matches nothing — a typo, or a profile you never linked —
+  whichever extension profile is already active simply stays active. Nothing is cleared.
+
 ---
 
 ## Starting and stopping recording
@@ -161,10 +183,15 @@ half-width layouts are handled automatically from whichever cell you drop the fi
 
 ## Notifications
 
-**In-ride alerts** appear on every start and stop, and always state the reason — "Speed
-trigger", "Radar trigger", "Manually from Karoo field", "Manually from Karoo button", "On
-the camera". So when a camera starts itself mid-descent, you know which trigger did it
-rather than guessing.
+**In-ride alerts** appear on every start and stop, and always state the reason — "HR
+trigger", "Power trigger", "Speed trigger", "Radar trigger", "Manually from Karoo field",
+"Manually from Karoo button", "On the camera". So when a camera starts itself mid-descent,
+you know which trigger did it rather than guessing.
+
+Heart rate and power are named individually here even though they share one latch
+internally, since "Effort trigger" left you guessing which of the two it meant. A stop
+alert names whichever trigger was holding the recording up until that moment, rather than
+the empty set it collapsed to.
 
 **Status bar notifications** for the same events are optional, under **Notifications**.
 They cover every start and stop from any source and apply to all saved cameras. On Android

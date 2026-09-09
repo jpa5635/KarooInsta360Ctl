@@ -10,6 +10,7 @@ import com.example.karooinsta360.camera.ProfileStore
 import com.example.karooinsta360.connection.Insta360ConnectionManager
 import io.hammerhead.karooext.KarooSystemService
 import io.hammerhead.karooext.extension.KarooExtension
+import io.hammerhead.karooext.models.ActiveRideProfile
 import io.hammerhead.karooext.models.DataType
 import io.hammerhead.karooext.models.InRideAlert
 import io.hammerhead.karooext.models.StreamState
@@ -159,6 +160,7 @@ class Insta360Extension : KarooExtension(EXTENSION_ID, "1.0") {
     private var powerJob: Job? = null
     private var speedJob: Job? = null
     private var radarJob: Job? = null
+    private var activeRideProfileJob: Job? = null
     private val cameraMonitors = ConcurrentHashMap<String, Job>()
 
     private val connectionListener = object : Insta360ConnectionManager.Listener {
@@ -207,8 +209,10 @@ class Insta360Extension : KarooExtension(EXTENSION_ID, "1.0") {
             if (connected) {
                 startMetricCollectors()
                 resyncCameraMonitors()
+                observeActiveRideProfile()
             } else {
                 stopMetricCollectors()
+                activeRideProfileJob?.cancel(); activeRideProfileJob = null
                 cameraMonitors.values.forEach { it.cancel() }
                 cameraMonitors.clear()
             }
@@ -221,6 +225,7 @@ class Insta360Extension : KarooExtension(EXTENSION_ID, "1.0") {
         ProfileStore.unregisterChangeListener(this, profileStoreListener)
         Insta360ConnectionManager.removeListener(connectionListener)
         stopMetricCollectors()
+        activeRideProfileJob?.cancel(); activeRideProfileJob = null
         cameraMonitors.values.forEach { it.cancel() }
         cameraMonitors.clear()
         karooSystem.disconnect()
@@ -346,6 +351,44 @@ class Insta360Extension : KarooExtension(EXTENSION_ID, "1.0") {
     }
 
     /**
+     * **Added (2026-09-08)** — links a profile to whichever Karoo ride profile the rider
+     * actually selects, via [ProfileStore.Profile.karooProfileName] (a free-text field,
+     * since karoo-ext has no API to list a rider's configured Karoo profiles, only name
+     * whichever one is currently active — see [ActiveRideProfile]).
+     *
+     * Fires every time the rider changes their selection on the launcher, both before a
+     * ride starts and (per [ActiveRideProfile]'s own doc, "selected by user on launcher")
+     * potentially mid-ride too, so a profile switch pre-ride or mid-ride both take effect
+     * the same way, live. A match calls [ProfileStore.activateProfile] exactly like the
+     * main screen's own Apply button — same mechanism, just triggered automatically.
+     *
+     * No match (typo, or this Karoo profile was never linked to anything) does nothing:
+     * whichever profile is already active — [ProfileStore.getActiveProfileId] — is left
+     * alone rather than cleared, since that value already **is** "last active profile"
+     * simply by virtue of nothing here changing it.
+     */
+    private fun observeActiveRideProfile() {
+        activeRideProfileJob?.cancel()
+        activeRideProfileJob = CoroutineScope(Dispatchers.Default).launch {
+            karooSystem.consumerFlow<ActiveRideProfile>().collect { event ->
+                // event.profile.name: verify this against the compiled karoo-ext AAR on
+                // first build — every other named model in this library (Bike, SavedDevice,
+                // etc.) uses `name: String` for its display name, but ActiveRideProfile's
+                // `RideProfile` type wasn't directly inspectable while writing this. If the
+                // property is actually named differently, this is a one-line compile error.
+                val karooProfileName = event.profile.name
+                val match = ProfileStore.findProfileForKarooProfileName(this@Insta360Extension, karooProfileName)
+                if (match == null) {
+                    Log.i(TAG, "Active Karoo profile '$karooProfileName' has no linked profile — leaving active profile as-is")
+                } else if (match.id != ProfileStore.getActiveProfileId(this@Insta360Extension)) {
+                    Log.i(TAG, "Active Karoo profile '$karooProfileName' matches '${match.name}' — activating it")
+                    ProfileStore.activateProfile(this@Insta360Extension, match.id)
+                }
+            }
+        }
+    }
+
+    /**
      * Starts/stops/restarts one monitor coroutine per camera that's both currently saved
      * AND switched on in the active profile — see [ProfileStore]'s doc comment. A camera
      * that's saved but not part of the active profile (or there being no active profile at
@@ -403,6 +446,23 @@ class Insta360Extension : KarooExtension(EXTENSION_ID, "1.0") {
             var speedWantsRecording = false
             var radarWantsRecording = false
 
+            // Which of the two effort metrics is currently the reason effortWantsRecording
+            // is true — purely for reporting (see wantingLatches below); the combined
+            // OR/either-can-release behavior above is unchanged. Set true at the same point
+            // startCauses gains that metric's entry; both cleared together wherever effort
+            // as a whole releases (mirrors hrBelowSince/powerBelowSince's own reset points),
+            // since the current design already treats effort as one latch that either
+            // metric alone can end — this only tracks who's *currently* in it, not who
+            // ends it.
+            var hrLatched = false
+            var powerLatched = false
+
+            // wantingLatches as of the END of the previous tick — used only for the STOP
+            // event below. By the tick a stop actually fires, this tick's own wantingLatches
+            // has already collapsed to "none" (that's why it's stopping); this is what was
+            // still active a moment before, i.e. the actual answer to "what just stopped".
+            var previousWantingLatches = "none"
+
             // Human-readable description of whichever latch most recently flipped, and
             // in what direction — e.g. "effort start: heart rate (165bpm ≥ 160bpm for 5s)"
             // or "speed stop: rawSpeed=1.8m/s < 4.0m/s (9.0mph)". Fed into the combine
@@ -451,6 +511,7 @@ class Insta360Extension : KarooExtension(EXTENSION_ID, "1.0") {
                             val since = hrAboveSince ?: now.also { hrAboveSince = it }
                             if (now - since >= settings.heartRate.startSeconds * 1000L) {
                                 started = true
+                                hrLatched = true
                                 startCauses.add(
                                     "heart rate (${v}bpm ≥ ${settings.heartRate.startThreshold}bpm for ${settings.heartRate.startSeconds}s)",
                                 )
@@ -465,6 +526,7 @@ class Insta360Extension : KarooExtension(EXTENSION_ID, "1.0") {
                             val since = powerAboveSince ?: now.also { powerAboveSince = it }
                             if (now - since >= settings.power.startSeconds * 1000L) {
                                 started = true
+                                powerLatched = true
                                 startCauses.add(
                                     "power (${v}W ≥ ${settings.power.startThreshold}W for ${settings.power.startSeconds}s)",
                                 )
@@ -575,6 +637,8 @@ class Insta360Extension : KarooExtension(EXTENSION_ID, "1.0") {
                         val detail = "effort stop: ${stopCauses.joinToString(" and ")}"
                         Log.i(TAG, "[${camera.displayLabel}] $detail — no longer wants recording")
                         effortWantsRecording = false
+                        hrLatched = false
+                        powerLatched = false
                         lastLatchEvent = detail
                         hrBelowSince = null
                         powerBelowSince = null
@@ -738,6 +802,8 @@ class Insta360Extension : KarooExtension(EXTENSION_ID, "1.0") {
                     val detail = "effort data source lost: no $staleNames reading for ≥${minutes}min"
                     Log.w(TAG, "[${camera.displayLabel}] $detail — releasing effort latch")
                     effortWantsRecording = false
+                    hrLatched = false
+                    powerLatched = false
                     lastLatchEvent = detail
                     dataSourceLossReason = detail
                     hrAboveSince = null
@@ -786,7 +852,16 @@ class Insta360Extension : KarooExtension(EXTENSION_ID, "1.0") {
                 val owner = Insta360ConnectionManager.recordingOwner(address)
                 val paused = Insta360ConnectionManager.isAutomationPaused(address)
                 val wantingLatches = buildList {
-                    if (effortWantsRecording) add("effort")
+                    if (effortWantsRecording) {
+                        // Name the specific metric(s) currently behind effort — "Power"/
+                        // "HR" rather than the opaque "Effort" a rider has no context for.
+                        if (hrLatched) add("hr")
+                        if (powerLatched) add("power")
+                        // Shouldn't normally happen (hrLatched/powerLatched are set
+                        // wherever effortWantsRecording is), but never silently drop the
+                        // latch from the label if it does.
+                        if (!hrLatched && !powerLatched) add("effort")
+                    }
                     if (speedWantsRecording) add("speed")
                     if (radarWantsRecording) add("radar")
                 }.let { if (it.isEmpty()) "none" else it.joinToString("+") }
@@ -851,9 +926,12 @@ class Insta360Extension : KarooExtension(EXTENSION_ID, "1.0") {
                     // Same split the log lines above already make, now carried into the
                     // alert too: a data-source-loss stop is a different event from an
                     // ordinary threshold stop and the rider should be told which it was.
+                    // wantingLatches here is already "none" — that's *why* this branch is
+                    // running. previousWantingLatches is what was still active a moment
+                    // ago, which is the actual answer to "what trigger is this a stop for".
                     val stopReason = lossReason
                         ?.let { RecordingReason.DataSourceLost(it) }
-                        ?: RecordingReason.Trigger(wantingLatches, lastLatchEvent)
+                        ?: RecordingReason.Trigger(previousWantingLatches, lastLatchEvent)
                     Insta360ConnectionManager.stopCapture(address, reason = stopReason)
                 } else if (!desired && actual) {
                     outcome = "stop-suppressed|owner=$owner"
@@ -871,6 +949,9 @@ class Insta360Extension : KarooExtension(EXTENSION_ID, "1.0") {
                     }
                 }
                 lastCombineOutcome = outcome
+                // Captured for the NEXT tick's use, after this tick has already used
+                // whatever was captured on the previous one (see the stop branch above).
+                previousWantingLatches = wantingLatches
             }
         }
     }

@@ -7,8 +7,10 @@ import android.util.TypedValue
 import android.view.View
 import android.widget.Button
 import android.widget.CheckBox
+import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import com.example.karooinsta360.R
 
@@ -33,6 +35,8 @@ class ProfileActivity : AppCompatActivity() {
     private lateinit var titleText: TextView
     private lateinit var noCamerasText: TextView
     private lateinit var cameraListContainer: LinearLayout
+    private lateinit var karooProfileNameEdit: EditText
+    private lateinit var karooProfileNameSaveButton: Button
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -43,6 +47,33 @@ class ProfileActivity : AppCompatActivity() {
         titleText = findViewById(R.id.profileTitleText)
         noCamerasText = findViewById(R.id.profileNoCamerasText)
         cameraListContainer = findViewById(R.id.profileCameraListContainer)
+        karooProfileNameEdit = findViewById(R.id.profileKarooProfileNameEdit)
+        karooProfileNameSaveButton = findViewById(R.id.profileKarooProfileNameSaveButton)
+
+        karooProfileNameSaveButton.setOnClickListener { saveKarooProfileName() }
+    }
+
+    /**
+     * **Added (2026-09-08)** — see [ProfileStore.setKarooProfileName]. A blank field
+     * clears the mapping (always allowed); a name already used by another profile is
+     * rejected with a Toast naming which one, rather than silently handed to it.
+     */
+    private fun saveKarooProfileName() {
+        val typed = karooProfileNameEdit.text.toString()
+        val conflict = typed.trim().takeUnless { it.isEmpty() }?.let { trimmed ->
+            ProfileStore.getProfiles(this).find {
+                it.id != profileId && it.karooProfileName?.trim()?.equals(trimmed, ignoreCase = true) == true
+            }
+        }
+        if (conflict != null) {
+            Toast.makeText(this, "Already assigned to '${conflict.name}'", Toast.LENGTH_LONG).show()
+            return
+        }
+        val saved = ProfileStore.setKarooProfileName(this, profileId, typed)
+        if (saved) {
+            Toast.makeText(this, "Saved", Toast.LENGTH_SHORT).show()
+        }
+        refresh()
     }
 
     override fun onResume() {
@@ -57,6 +88,14 @@ class ProfileActivity : AppCompatActivity() {
             return
         }
         titleText.text = profile.name
+        // Only overwrite the field if it's not already showing what's saved — avoids
+        // clobbering an in-progress edit if refresh() ever runs while the field has
+        // unsaved focus (e.g. a future onResume path), and keeps the cursor position
+        // stable on the ordinary case where it just matches after a successful save.
+        val savedName = profile.karooProfileName.orEmpty()
+        if (karooProfileNameEdit.text.toString() != savedName) {
+            karooProfileNameEdit.setText(savedName)
+        }
 
         val cameras = CameraStore.getCameras(this)
         noCamerasText.visibility = if (cameras.isEmpty()) View.VISIBLE else View.GONE

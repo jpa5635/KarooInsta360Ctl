@@ -85,6 +85,15 @@ object ProfileStore {
         val name: String,
         val activeCameraAddresses: Set<String> = emptySet(),
         val cameraSettings: Map<String, ProfileCameraSettings> = emptyMap(),
+        /**
+         * **Added (2026-09-08)** — the name of the Karoo ride profile (Road, Gravel,
+         * MTB, ...) this profile should become active for. Free text rather than a
+         * picker: karoo-ext has no API to list a rider's configured ride profiles, only
+         * [io.hammerhead.karooext.models.ActiveRideProfile] naming whichever one is
+         * currently selected — see [findProfileForKarooProfileName] for the matching
+         * side. Null/blank means this profile isn't linked to any Karoo profile.
+         */
+        val karooProfileName: String? = null,
     )
 
     private fun prefs(context: Context): SharedPreferences =
@@ -182,6 +191,41 @@ object ProfileStore {
         saveProfile(context, profile.copy(cameraSettings = profile.cameraSettings + (address to settings)))
     }
 
+    /**
+     * Sets (or, with a blank/null [name], clears) [profileId]'s linked Karoo ride profile
+     * name. Rejects — returns `false`, saves nothing — if [name] (trimmed) already matches
+     * another profile's [Profile.karooProfileName] case-insensitively, keeping the mapping
+     * one-to-one so [findProfileForKarooProfileName] never has two candidates to choose
+     * between. Clearing (blank/null) is always allowed since any number of profiles can be
+     * simultaneously unlinked.
+     */
+    fun setKarooProfileName(context: Context, profileId: String, name: String?): Boolean {
+        val profile = getProfile(context, profileId) ?: return false
+        val trimmed = name?.trim().takeUnless { it.isNullOrEmpty() }
+        if (trimmed != null) {
+            val conflict = getProfiles(context).any {
+                it.id != profileId && it.karooProfileName?.trim()?.equals(trimmed, ignoreCase = true) == true
+            }
+            if (conflict) return false
+        }
+        saveProfile(context, profile.copy(karooProfileName = trimmed))
+        return true
+    }
+
+    /**
+     * Matches an [io.hammerhead.karooext.models.ActiveRideProfile] name against every
+     * profile's [Profile.karooProfileName], trimmed and case-insensitive so "Road",
+     * "road", and " Road " all resolve to the same mapping. Null if nothing matches —
+     * callers should leave whichever profile is already active untouched in that case
+     * (see [Insta360Extension][com.example.karooinsta360.extension.Insta360Extension]),
+     * rather than treat a typo'd/unmapped Karoo profile as "no profile".
+     */
+    fun findProfileForKarooProfileName(context: Context, karooProfileName: String): Profile? {
+        val target = karooProfileName.trim()
+        if (target.isEmpty()) return null
+        return getProfiles(context).find { it.karooProfileName?.trim()?.equals(target, ignoreCase = true) == true }
+    }
+
     fun registerChangeListener(context: Context, listener: SharedPreferences.OnSharedPreferenceChangeListener) {
         prefs(context).registerOnSharedPreferenceChangeListener(listener)
     }
@@ -247,6 +291,9 @@ object ProfileStore {
         val settings = JSONObject()
         p.cameraSettings.forEach { (address, s) -> settings.put(address, settingsToJson(s)) }
         put("cameraSettings", settings)
+        // JSONObject silently drops a put(key, null), so an absent key on read already
+        // means "no mapping" — optString below then defaults it to "", matching that.
+        p.karooProfileName?.let { put("karooProfileName", it) }
     }
 
     private fun profileFromJson(o: JSONObject): Profile {
@@ -269,6 +316,7 @@ object ProfileStore {
             name = o.optString("name").ifBlank { "Unnamed profile" },
             activeCameraAddresses = activeAddresses,
             cameraSettings = settings,
+            karooProfileName = o.optString("karooProfileName").ifBlank { null },
         )
     }
 }

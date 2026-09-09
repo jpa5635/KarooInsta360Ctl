@@ -57,13 +57,23 @@ sealed class RecordingReason {
     data class Trigger(val latches: String, val detail: String) : RecordingReason() {
         override val alertText: String
             get() = when (latches) {
-                "none" -> "Trigger released"
+                // No longer expected in normal operation — Insta360Extension now passes
+                // the *previous* tick's latches for a stop event specifically so this
+                // never has to describe an already-emptied set. Kept as a graceful
+                // fallback (empty, matching raiseRecordingAlert's "nothing to add" case)
+                // rather than "Trigger released", which named nothing and stated the
+                // obvious on a "Recording stopped" alert.
+                "none" -> ""
                 else -> latches.split("+").joinToString(" + ") { latchLabel(it) } + " trigger"
             }
 
         override val logText: String get() = "$latches ($detail)"
 
         private fun latchLabel(latch: String) = when (latch) {
+            "hr" -> "HR"
+            "power" -> "Power"
+            // Defensive fallback only — Insta360Extension always reports "hr"/"power"
+            // individually now rather than the combined "effort" label.
             "effort" -> "Effort"
             "speed" -> "Speed"
             "radar" -> "Radar"
