@@ -4,6 +4,7 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.util.TypedValue
+import android.view.View
 import android.widget.RemoteViews
 import androidx.core.content.ContextCompat
 import com.example.karooinsta360.AppSettings
@@ -50,21 +51,35 @@ class RecordingControlDataType(extension: String) : DataTypeImpl(extension, TYPE
         val tall = config.gridSize.second > QUARTER_HEIGHT_ROWS
 
         fun render() {
-            val recording = Insta360ConnectionManager.isAnyCameraRecording(context)
+            val states = Insta360ConnectionManager.getCameraStates(context)
+            val recordingCameras = states.filter { it.recording }
+            val recording = recordingCameras.isNotEmpty()
             val dark = AppSettings.isFieldThemeDark(context)
+            val baseBackground = if (dark) R.color.field_dark_bg else R.color.field_light_bg
+
+            // Stripes appear only for cameras that are actually recording, so the field
+            // keeps its original meaning: colour in the cell means something is rolling.
+            // A connected-but-idle camera contributes nothing.
+            val stripeCameras = if (AppSettings.isRecordingColorFromBattery(context)) {
+                recordingCameras.take(STRIPE_IDS.size)
+            } else {
+                emptyList()
+            }
 
             val background = when {
+                // Stripes cover the cell themselves; the root only shows through where
+                // they don't reach, so it stays on the plain field background.
+                stripeCameras.isNotEmpty() -> baseBackground
                 recording -> R.color.field_recording_bg
-                dark -> R.color.field_dark_bg
-                else -> R.color.field_light_bg
+                else -> baseBackground
             }
-            // Text stays white on the recording treatment regardless of theme — the red
-            // is dark enough that light theme's near-black text would be unreadable on it.
-            val textColor = when {
-                recording -> R.color.field_recording_text
-                dark -> R.color.field_dark_text
-                else -> R.color.field_light_text
-            }
+
+            // The text now sits in its own box (see the layout), so it no longer has to
+            // survive being drawn straight onto the recording red or onto a battery band —
+            // it's always on the theme background and always uses the theme text colour.
+            val textColor = if (dark) R.color.field_dark_text else R.color.field_light_text
+            val boxBackground =
+                if (dark) R.drawable.bg_field_text_box_dark else R.drawable.bg_field_text_box_light
 
             val pendingIntent = PendingIntent.getBroadcast(
                 context,
@@ -99,6 +114,24 @@ class RecordingControlDataType(extension: String) : DataTypeImpl(extension, TYPE
                     "setBackgroundColor",
                     ContextCompat.getColor(context, background),
                 )
+                setInt(R.id.recordingControlText, "setBackgroundResource", boxBackground)
+
+                // A GONE stripe drops out of layout_weight distribution entirely, so the
+                // visible ones always split the cell evenly however many there are.
+                STRIPE_IDS.forEachIndexed { index, stripeId ->
+                    val camera = stripeCameras.getOrNull(index)
+                    if (camera == null) {
+                        setViewVisibility(stripeId, View.GONE)
+                    } else {
+                        // No usable battery reading falls back to the plain recording red
+                        // rather than to a neutral colour: this camera *is* recording, and
+                        // that has to stay unmistakable even when its level is unknown.
+                        val colorRes = camera.batteryBand?.fillColor ?: R.color.field_recording_bg
+                        setViewVisibility(stripeId, View.VISIBLE)
+                        setInt(stripeId, "setBackgroundColor", ContextCompat.getColor(context, colorRes))
+                    }
+                }
+
                 setOnClickPendingIntent(R.id.recordingControlRoot, pendingIntent)
             }
             // Rate-limited to ~1Hz by ViewEmitter itself — a render() call that lands
@@ -127,6 +160,22 @@ class RecordingControlDataType(extension: String) : DataTypeImpl(extension, TYPE
 
     companion object {
         const val TYPE_ID = "recording_control"
+
+        /**
+         * The declared stripe slots, in order. Cameras fill them in CameraStore order so
+         * the leftmost stripe is the same physical camera every ride — and the same camera
+         * as the leftmost percentage on the Distance field.
+         *
+         * Three is a deliberate cap. RemoteViews could build the row dynamically
+         * (removeAllViews + addView), but addView is deprecated as of API 31, and a
+         * half-width cell split four ways gives slivers that convey nothing anyway. A
+         * fourth configured camera simply doesn't get a stripe.
+         */
+        private val STRIPE_IDS = intArrayOf(
+            R.id.recordingStripe1,
+            R.id.recordingStripe2,
+            R.id.recordingStripe3,
+        )
 
         /** A quarter-height row on Karoo's 60-unit grid. */
         const val QUARTER_HEIGHT_ROWS = 15

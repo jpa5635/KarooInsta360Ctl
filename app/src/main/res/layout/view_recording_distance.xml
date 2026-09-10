@@ -5,10 +5,17 @@
      so on a quarter-height cell the label takes its space off the top and the value gets
      what's left, instead of overlapping the digits.
 
-     The dots sit outside that stack, pinned to the cell corners. Two pre-positioned dots
-     rather than one repositioned dot: RemoteViews can't change a child's layout_gravity,
-     and setViewLayoutWidth/Height is API 31+ (minSdk here is 26), so the code toggles
-     visibility to pick a side. -->
+     (2026-09-10) The top row now carries per-camera battery percentages on the left with
+     the field label pushed to the right edge (layout_weight on the label, gravity=end).
+     Each camera gets a recording dot immediately left of its percentage, tinted to that
+     camera's battery band — replacing the single corner-pinned dot this field used to
+     have, which no longer had a free corner to live in and couldn't say *which* camera was
+     rolling.
+
+     Three camera slots are declared, matching the Recording Control field's stripe cap.
+     Slots for cameras that aren't connected are set GONE and collapse completely; a
+     connected camera that isn't recording keeps its dot INVISIBLE rather than GONE, so
+     starting a recording doesn't shove its percentage sideways. -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/recordingDistanceRoot"
     android:layout_width="match_parent"
@@ -20,17 +27,101 @@
         android:layout_height="match_parent"
         android:orientation="vertical">
 
-        <TextView
-            android:id="@+id/distanceLabel"
+        <LinearLayout
+            android:id="@+id/distanceTopRow"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:gravity="center_horizontal"
-            android:includeFontPadding="false"
-            android:maxLines="1"
-            android:fontFamily="sans-serif"
-            android:textFontWeight="700"
-            android:textSize="11sp"
-            android:text="DISTANCE" />
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <ImageView
+                android:id="@+id/batteryDot1"
+                android:layout_width="10dp"
+                android:layout_height="10dp"
+                android:layout_marginEnd="2dp"
+                android:padding="1dp"
+                android:visibility="gone"
+                android:background="@drawable/bg_dot_ring_dark"
+                android:contentDescription="@string/recording_dot_description"
+                android:src="@drawable/ic_rec_dot_solid" />
+
+            <TextView
+                android:id="@+id/batteryPct1"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="6dp"
+                android:includeFontPadding="false"
+                android:maxLines="1"
+                android:fontFamily="sans-serif"
+                android:textFontWeight="300"
+                android:textSize="11sp"
+                android:visibility="gone"
+                android:text="--%" />
+
+            <ImageView
+                android:id="@+id/batteryDot2"
+                android:layout_width="10dp"
+                android:layout_height="10dp"
+                android:layout_marginEnd="2dp"
+                android:padding="1dp"
+                android:visibility="gone"
+                android:background="@drawable/bg_dot_ring_dark"
+                android:contentDescription="@string/recording_dot_description"
+                android:src="@drawable/ic_rec_dot_solid" />
+
+            <TextView
+                android:id="@+id/batteryPct2"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="6dp"
+                android:includeFontPadding="false"
+                android:maxLines="1"
+                android:fontFamily="sans-serif"
+                android:textFontWeight="300"
+                android:textSize="11sp"
+                android:visibility="gone"
+                android:text="--%" />
+
+            <ImageView
+                android:id="@+id/batteryDot3"
+                android:layout_width="10dp"
+                android:layout_height="10dp"
+                android:layout_marginEnd="2dp"
+                android:padding="1dp"
+                android:visibility="gone"
+                android:background="@drawable/bg_dot_ring_dark"
+                android:contentDescription="@string/recording_dot_description"
+                android:src="@drawable/ic_rec_dot_solid" />
+
+            <TextView
+                android:id="@+id/batteryPct3"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="6dp"
+                android:includeFontPadding="false"
+                android:maxLines="1"
+                android:fontFamily="sans-serif"
+                android:textFontWeight="300"
+                android:textSize="11sp"
+                android:visibility="gone"
+                android:text="--%" />
+
+            <!-- Weight here is what right-justifies the label: it absorbs whatever the
+                 percentages don't use, and gravity=end pins the text to the far edge. -->
+            <TextView
+                android:id="@+id/distanceLabel"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:gravity="end"
+                android:includeFontPadding="false"
+                android:maxLines="1"
+                android:fontFamily="sans-serif"
+                android:textFontWeight="700"
+                android:textSize="11sp"
+                android:text="DISTANCE" />
+
+        </LinearLayout>
 
         <!-- Weight, not family, is the lever on this device.
              /system/etc/fonts.xml remaps "sans-serif" to IBM Plex Sans with non-standard
@@ -67,23 +158,5 @@
             android:text="--" />
 
     </LinearLayout>
-
-    <ImageView
-        android:id="@+id/recordingDistanceDotStart"
-        android:layout_width="14dp"
-        android:layout_height="14dp"
-        android:layout_gravity="start|top"
-        android:visibility="gone"
-        android:contentDescription="@string/recording_dot_description"
-        android:src="@drawable/ic_rec_dot_on_dark" />
-
-    <ImageView
-        android:id="@+id/recordingDistanceDotEnd"
-        android:layout_width="14dp"
-        android:layout_height="14dp"
-        android:layout_gravity="end|top"
-        android:visibility="gone"
-        android:contentDescription="@string/recording_dot_description"
-        android:src="@drawable/ic_rec_dot_on_dark" />
 
 </FrameLayout>

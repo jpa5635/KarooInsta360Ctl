@@ -186,6 +186,20 @@
             android:text="Applies to the Recording Control tile and the Insta360 Distance field. Karoo doesn't tell an extension whether your ride pages are light or dark, so this has to be set here to match. Full-width and half-width layouts are handled automatically from whichever cell you drop the field into."
             android:layout_marginBottom="16dp" />
 
+        <CheckBox
+            android:id="@+id/batteryColorCheckbox"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Colour the Recording Control tile by camera battery level"
+            android:layout_marginBottom="4dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textSize="12sp"
+            android:text="Off: the tile turns solid red while any camera is recording. On: each recording camera gets an even stripe of the tile coloured by its battery level - green above 80%, then yellow-green, yellow, orange, red below 20% and purple below 10%. Cameras that aren't recording get no stripe, so a coloured tile still means recording either way. Up to three cameras are shown."
+            android:layout_marginBottom="16dp" />
+
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"

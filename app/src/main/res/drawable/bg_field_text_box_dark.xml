@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Backing for the Recording Control field's text, dark variant. Bare rounded rect, no
+     border. Sits above the per-camera battery stripes so the label stays legible where it
+     would otherwise cross a stripe boundary. See RecordingControlDataType. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@color/field_box_dark_bg" />
+    <corners android:radius="6dp" />
+</shape>

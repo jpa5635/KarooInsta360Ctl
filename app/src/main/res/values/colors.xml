@@ -18,4 +18,27 @@
     <color name="field_light_text">#111111</color>
     <color name="field_recording_text">#FFFFFF</color>
     <color name="recording_dot">#FF2D2D</color>
+
+    <!-- Added (2026-09-10) — battery level bands. See camera/CameraBattery.kt for the
+         percentage boundaries these map to. Used as the fill for the Recording Control
+         field's per-camera stripes and as the tint for the Insta360 Distance field's
+         per-camera recording dots.
+
+         The yellow is deliberately not a true yellow: field_light_bg is #F2FFFFFF, and
+         #FFEB3B against that is close to invisible in daylight. The red is also *not*
+         field_recording_bg, so a red battery band and the plain "recording" treatment
+         can't be confused when the battery-colour option is switched off. -->
+    <color name="battery_full">#2E7D32</color>
+    <color name="battery_high">#7CB342</color>
+    <color name="battery_medium">#F2C200</color>
+    <color name="battery_low">#EF6C00</color>
+    <color name="battery_critical">#D32F2F</color>
+    <color name="battery_depleted">#7B1FA2</color>
+
+    <!-- Backing for the text box the Recording Control field draws over its stripes, and
+         the ring behind a tinted recording dot. Near-opaque rather than translucent: at
+         50% alpha the same box reads differently over #F2C200 than over #7B1FA2, and the
+         text contrast would shift with the battery level. -->
+    <color name="field_box_dark_bg">#F2101010</color>
+    <color name="field_box_light_bg">#F2FFFFFF</color>
 </resources>

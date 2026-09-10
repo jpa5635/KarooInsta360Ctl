@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Recording dot, drawn solid white and tinted at runtime to the camera's battery band
+     (RecordingDistanceDataType calls setColorFilter on the ImageView).
+
+     No ring baked in, unlike the fixed-colour dots this replaced: ImageView.setColorFilter
+     uses SRC_ATOP, which repaints every non-transparent pixel, so a stroke in this shape
+     would be tinted along with the fill and vanish. The ring comes instead from the
+     ImageView's *background* (bg_dot_ring_dark/light) showing through its 1dp padding,
+     which the colour filter doesn't touch — which matters most for the mid-tone bands. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="oval">
+    <solid android:color="#FFFFFF" />
+</shape>

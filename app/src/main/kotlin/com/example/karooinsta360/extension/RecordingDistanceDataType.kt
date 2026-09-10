@@ -143,23 +143,22 @@ class RecordingDistanceDataType(
             }
         }
 
-        val dotId = when (config.alignment) {
-            ViewConfig.Alignment.LEFT -> R.id.recordingDistanceDotEnd
-            ViewConfig.Alignment.CENTER, ViewConfig.Alignment.RIGHT -> R.id.recordingDistanceDotStart
-        }
-        val otherDotId = when (dotId) {
-            R.id.recordingDistanceDotEnd -> R.id.recordingDistanceDotStart
-            else -> R.id.recordingDistanceDotEnd
-        }
-
         var renderJob: Job? = null
         renderJob = CoroutineScope(Dispatchers.Default).launch {
             var dotOn = true
             while (isActive) {
-                val recording = config.preview || Insta360ConnectionManager.isAnyCameraRecording(context)
                 val dark = AppSettings.isFieldThemeDark(context)
                 val textColor = if (dark) R.color.field_dark_text else R.color.field_light_text
-                val dotDrawable = if (dark) R.drawable.ic_rec_dot_on_dark else R.drawable.ic_rec_dot_on_light
+                val ringDrawable =
+                    if (dark) R.drawable.bg_dot_ring_dark else R.drawable.bg_dot_ring_light
+
+                // Only connected cameras get a slot. A camera that isn't there shows
+                // nothing at all rather than a placeholder — with none connected this
+                // renders as a plain right-justified DISTANCE label, i.e. as an ordinary
+                // distance field.
+                val cameras = Insta360ConnectionManager.getCameraStates(context)
+                    .filter { it.connected }
+                    .take(CAMERA_SLOTS.size)
 
                 val views = RemoteViews(context.packageName, R.layout.view_recording_distance).apply {
                     // Just the field name, matching how Karoo labels its own fields. The
@@ -172,14 +171,41 @@ class RecordingDistanceDataType(
                     setTextViewText(R.id.distanceValue, formatDistance(meters.get(), imperial.get()))
                     setTextViewTextSize(R.id.distanceValue, TypedValue.COMPLEX_UNIT_SP, valueTextSizeSp)
                     setTextColor(R.id.distanceValue, ContextCompat.getColor(context, textColor))
-                    setImageViewResource(dotId, dotDrawable)
-                    // INVISIBLE rather than GONE on the active side so the dot blinks in
-                    // place without the value shifting under it.
-                    setViewVisibility(
-                        dotId,
-                        if (recording && (dotOn || config.preview)) View.VISIBLE else View.INVISIBLE,
-                    )
-                    setViewVisibility(otherDotId, View.GONE)
+
+                    CAMERA_SLOTS.forEachIndexed { index, slot ->
+                        val camera = cameras.getOrNull(index)
+                        // In the field picker's preview there are no live cameras, so show
+                        // one populated slot rather than an empty row that makes the field
+                        // look broken before it's been placed.
+                        val preview = config.preview && index == 0 && cameras.isEmpty()
+
+                        if (camera == null && !preview) {
+                            setViewVisibility(slot.dotId, View.GONE)
+                            setViewVisibility(slot.percentId, View.GONE)
+                            return@forEachIndexed
+                        }
+
+                        val percent = camera?.batteryPercent
+                        setViewVisibility(slot.percentId, View.VISIBLE)
+                        // "--%" rather than a collapsed slot for a camera that is present
+                        // but hasn't pushed a level yet: it's connected, and blanking it
+                        // would make the number pop in later and shove its neighbours over.
+                        setTextViewText(slot.percentId, if (percent == null) "--%" else "$percent%")
+                        setTextViewTextSize(slot.percentId, TypedValue.COMPLEX_UNIT_SP, labelTextSizeSp)
+                        setTextColor(slot.percentId, ContextCompat.getColor(context, textColor))
+
+                        // The dot carries two facts at once: blinking means this camera is
+                        // recording, and its hue is that camera's battery band. Tinted
+                        // rather than swapped per band — the drawable is a plain white
+                        // circle and setColorFilter recolours it.
+                        val bandColor = camera?.batteryBand?.fillColor ?: R.color.recording_dot
+                        setInt(slot.dotId, "setBackgroundResource", ringDrawable)
+                        setInt(slot.dotId, "setColorFilter", ContextCompat.getColor(context, bandColor))
+                        // INVISIBLE rather than GONE for a camera that isn't recording, so
+                        // starting one doesn't shift its percentage sideways.
+                        val lit = (camera?.recording == true && dotOn) || preview
+                        setViewVisibility(slot.dotId, if (lit) View.VISIBLE else View.INVISIBLE)
+                    }
                 }
                 emitter.updateView(views)
 
@@ -216,5 +242,22 @@ class RecordingDistanceDataType(
         /** See where this is used: compensates for the label row our layout adds. */
         private const val VALUE_SIZE_RATIO = 0.88f
         private const val MIN_LABEL_SP = 10f
+
+        /**
+         * One dot + percentage pair per camera, filled in CameraStore order so the
+         * leftmost percentage is the same camera as the leftmost stripe on the Recording
+         * Control field.
+         *
+         * Three slots, matching that field's stripe cap. On a half-width cell three
+         * percentages plus the label is already tight; a fourth camera is dropped rather
+         * than allowed to squeeze the label into an ellipsis.
+         */
+        private val CAMERA_SLOTS = listOf(
+            CameraSlot(R.id.batteryDot1, R.id.batteryPct1),
+            CameraSlot(R.id.batteryDot2, R.id.batteryPct2),
+            CameraSlot(R.id.batteryDot3, R.id.batteryPct3),
+        )
     }
+
+    private data class CameraSlot(val dotId: Int, val percentId: Int)
 }

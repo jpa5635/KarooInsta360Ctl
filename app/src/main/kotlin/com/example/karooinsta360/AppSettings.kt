@@ -14,6 +14,7 @@ object AppSettings {
     private const val KEY_DATA_SOURCE_LOSS_TIMEOUT_MINUTES = "data_source_loss_timeout_minutes"
     private const val DEFAULT_DATA_SOURCE_LOSS_TIMEOUT_MINUTES = 10
     private const val KEY_FIELD_THEME_DARK = "field_theme_dark"
+    private const val KEY_RECORDING_COLOR_FROM_BATTERY = "recording_color_from_battery"
 
     /** Post a status-bar notification whenever any saved camera starts or stops recording. */
     fun isRecordingNotificationEnabled(context: Context): Boolean =
@@ -76,10 +77,33 @@ object AppSettings {
     }
 
     /**
-     * Watches [isFieldThemeDark] only. Used by the graphical data fields, which are
+     * **Added (2026-09-10)** — when on, the Recording Control field colours itself from
+     * the cameras' battery levels instead of the flat `field_recording_bg` red.
+     *
+     * Each *recording* camera gets an even vertical stripe of the cell in its battery
+     * band's colour, so one glance gives both facts at once: the cell is coloured at all
+     * because something is rolling, and the hue says how much is left. A camera that is
+     * connected but idle gets no stripe — the field keeps meaning "coloured = recording",
+     * which is what it has always meant.
+     *
+     * Off by default, so an existing install looks exactly as it did before.
+     *
+     * Note that a recording camera with no usable battery reading falls back to the plain
+     * recording red for its stripe rather than to a neutral grey. Grey reads as "not
+     * recording", which is the one answer this field must never give wrongly.
+     */
+    fun isRecordingColorFromBattery(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_RECORDING_COLOR_FROM_BATTERY, false)
+
+    fun setRecordingColorFromBattery(context: Context, enabled: Boolean) {
+        prefs(context).edit().putBoolean(KEY_RECORDING_COLOR_FROM_BATTERY, enabled).apply()
+    }
+
+    /**
+     * Watches [isFieldThemeDark] and [isRecordingColorFromBattery]. Used by the graphical data fields, which are
      * rendered by a service that has no other reason to know the app's settings screen
-     * exists — without this, changing the theme wouldn't repaint an on-screen field until
-     * something else happened to trigger a render.
+     * exists — without this, changing one of these wouldn't repaint an on-screen field
+     * until something else happened to trigger a render.
      *
      * Returned listener must be handed back to [unregisterFieldThemeListener]; hold a
      * strong reference to it in the meantime, since SharedPreferences keeps only a weak
@@ -90,7 +114,7 @@ object AppSettings {
         onChanged: () -> Unit,
     ): SharedPreferences.OnSharedPreferenceChangeListener {
         val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
-            if (key == KEY_FIELD_THEME_DARK) onChanged()
+            if (key == KEY_FIELD_THEME_DARK || key == KEY_RECORDING_COLOR_FROM_BATTERY) onChanged()
         }
         prefs(context).registerOnSharedPreferenceChangeListener(listener)
         return listener

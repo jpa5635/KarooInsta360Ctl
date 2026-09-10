@@ -21,6 +21,8 @@ import com.example.karooinsta360.AppSettings
 import com.example.karooinsta360.Insta360BleClient
 import com.example.karooinsta360.R
 import com.example.karooinsta360.RecordingReason
+import com.example.karooinsta360.camera.BatteryBand
+import com.example.karooinsta360.camera.BatteryReading
 import com.example.karooinsta360.camera.CameraStore
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArraySet
@@ -53,6 +55,23 @@ object Insta360ConnectionManager {
      * would be reported late.
      */
     private const val LOCAL_CHANGE_GRACE_MS = 5_000L
+
+    /**
+     * Protobuf field numbers assumed to carry the battery percentage and charging flag in
+     * a 0x2003/0x2004 push. Field 1 is the conventional slot for the primary value; the
+     * charging flag is a guess and simply reads as "not charging" if absent.
+     *
+     * Both are assumptions, and [handleBatteryPayload] logs every varint field it finds
+     * precisely so a single ride's logcat is enough to correct them here.
+     */
+    private const val BATTERY_PERCENT_FIELD = 1
+    private const val BATTERY_CHARGING_FIELD = 2
+
+    /**
+     * How far the reported percentage must climb before the band latch releases — see
+     * [batteryBand]. Above ordinary reporting jitter, below any real charge gain.
+     */
+    private const val BAND_LATCH_RELEASE_POINTS = 5
     // "_hi" because this used to be "recording_state" at IMPORTANCE_LOW — see
     // ensureNotificationChannel's doc comment for why the ID had to change, not just
     // the importance value, to actually fix anything for an existing install.
@@ -86,6 +105,10 @@ object Insta360ConnectionManager {
         val name: String,
         val connected: Boolean,
         val recording: Boolean,
+        /** Null when the camera has sent no reading yet, or the last one has gone stale. */
+        val batteryPercent: Int? = null,
+        /** Null exactly when [batteryPercent] is. Latched — see [batteryBand]. */
+        val batteryBand: BatteryBand? = null,
     )
 
     /**
@@ -112,6 +135,15 @@ object Insta360ConnectionManager {
     private val recordingFlags = ConcurrentHashMap<String, Boolean>()
     private val recordingOwner = ConcurrentHashMap<String, RecordingOwner>()
 
+    /** Last battery percentage each camera pushed. See [handleBatteryPayload]. */
+    private val batteryReadings = ConcurrentHashMap<String, BatteryReading>()
+
+    /**
+     * Worst band seen for each camera since it connected — see [batteryBand] for why the
+     * displayed band only ever gets worse.
+     */
+    private val batteryBandLatch = ConcurrentHashMap<String, BatteryBand>()
+
     // Addresses currently under manual test control (see pauseAutomation doc below).
     private val automationPaused = ConcurrentHashMap<String, Boolean>()
 
@@ -128,6 +160,29 @@ object Insta360ConnectionManager {
     fun isConnected(address: String): Boolean = connectedFlags[address] == true
 
     fun isRecording(address: String): Boolean = recordingFlags[address] == true
+
+    /**
+     * The camera's last battery reading, or null if it has never sent one or the last one
+     * is too old to be worth showing. Callers should render the null case as `--%` or as
+     * nothing rather than substituting a number.
+     */
+    fun battery(address: String): BatteryReading? =
+        batteryReadings[address]?.takeIf { !it.isStale }
+
+    /**
+     * The colour band to display for a camera, which is the *worst* band seen since it
+     * connected rather than the band of the instantaneous reading.
+     *
+     * Camera-reported percentages jitter, especially under load, and the two lowest bands
+     * are only ten points wide — without a latch a field would visibly flicker between two
+     * colours near a boundary. The latch releases when the camera reports itself charging
+     * or when the percentage climbs by more than [BAND_LATCH_RELEASE_POINTS], so running
+     * the camera off a top-tube pack still shows the recovery.
+     */
+    fun batteryBand(address: String): BatteryBand? {
+        val reading = battery(address) ?: return null
+        return batteryBandLatch[address] ?: reading.band
+    }
 
     /** Who started the camera's current recording — see the [RecordingOwner] doc above. */
     fun recordingOwner(address: String): RecordingOwner = recordingOwner[address] ?: RecordingOwner.NONE
@@ -188,7 +243,14 @@ object Insta360ConnectionManager {
 
     fun getCameraStates(context: Context): List<CameraState> =
         CameraStore.getCameras(context).map { cfg ->
-            CameraState(cfg.address, cfg.name, isConnected(cfg.address), isRecording(cfg.address))
+            CameraState(
+                cfg.address,
+                cfg.name,
+                isConnected(cfg.address),
+                isRecording(cfg.address),
+                battery(cfg.address)?.percent,
+                batteryBand(cfg.address),
+            )
         }
 
     fun isAnyCameraRecording(context: Context): Boolean =
@@ -546,8 +608,19 @@ object Insta360ConnectionManager {
                     reason = RecordingReason.CameraFault(RecordingReason.CameraFault.Fault.STORAGE_FULL),
                 )
 
-            Insta360BleClient.NOTIFY_BATTERY_LOW ->
+            // **Added (2026-09-10)** — both of these used to be discarded: 0x2003 had no
+            // branch at all and fell through to the debug log, and 0x2004 only logged a
+            // warning. The camera was already pushing its battery level and nothing was
+            // reading it.
+            Insta360BleClient.NOTIFY_BATTERY_UPDATE ->
+                handleBatteryPayload(address, payload, source = "battery-update")
+
+            Insta360BleClient.NOTIFY_BATTERY_LOW -> {
                 Log.w(TAG, "[$address] camera battery low: $hex")
+                // The low-battery push may or may not carry a percentage. Parse it the
+                // same way and take one if it's there; the warning above stands either way.
+                handleBatteryPayload(address, payload, source = "battery-low")
+            }
 
             Insta360BleClient.NOTIFY_SHUTDOWN ->
                 applyExternalRecordingState(
@@ -605,6 +678,82 @@ object Insta360ConnectionManager {
         val recording = state != 0L
         Log.i(TAG, "[$address] capture status ($source): field1=$state -> recording=$recording")
         applyExternalRecordingState(address, recording, RecordingReason.CameraSide, polled = true)
+    }
+
+    /**
+     * Best-effort read of a battery percentage out of a camera push.
+     *
+     * **The schema is unconfirmed for the Ace Pro 2 and this deliberately fails closed**,
+     * exactly like [handleCaptureStatusPayload]. Every varint field in the payload is
+     * logged, so one ride's logcat identifies which field actually carries the percentage
+     * and correcting a wrong guess is a one-line change to [BATTERY_PERCENT_FIELD] rather
+     * than another round of speculation.
+     *
+     * A value outside 0..100 is not a percentage — it's some other field that happens to
+     * sit in the slot we're reading. Those are logged and dropped rather than displayed,
+     * because a battery field showing "4096%" is worse than one showing nothing.
+     */
+    private fun handleBatteryPayload(address: String, payload: ByteArray, source: String) {
+        val hex = payload.joinToString(" ") { "%02X".format(it) }
+        if (payload.isEmpty()) {
+            Log.i(TAG, "[$address] battery ($source): empty payload, ignoring")
+            return
+        }
+
+        val fields = parseVarintFields(payload)
+        Log.i(TAG, "[$address] battery ($source): raw=$hex varintFields=$fields")
+
+        val raw = fields[BATTERY_PERCENT_FIELD]
+        if (raw == null) {
+            Log.i(TAG, "[$address] battery ($source): no field $BATTERY_PERCENT_FIELD — level unchanged")
+            return
+        }
+        if (raw < 0L || raw > 100L) {
+            Log.w(TAG, "[$address] battery ($source): field $BATTERY_PERCENT_FIELD = $raw is not a percentage — ignoring")
+            return
+        }
+
+        val percent = raw.toInt()
+        val charging = fields[BATTERY_CHARGING_FIELD]?.let { it != 0L } ?: false
+        val reading = BatteryReading(percent, charging)
+        val previous = batteryReadings.put(address, reading)
+
+        updateBandLatch(address, reading, previous)
+
+        Log.i(TAG, "[$address] battery ($source): $percent%${if (charging) " (charging)" else ""} band=${batteryBand(address)}")
+        listeners.forEach { it.onCameraStateChanged(address) }
+    }
+
+    /**
+     * Ratchets the displayed band downward, releasing on charge or a sustained climb. See
+     * [batteryBand] for the reasoning.
+     */
+    private fun updateBandLatch(address: String, reading: BatteryReading, previous: BatteryReading?) {
+        val recovered = reading.charging ||
+            (previous != null && reading.percent - previous.percent > BAND_LATCH_RELEASE_POINTS)
+        if (recovered) {
+            batteryBandLatch[address] = reading.band
+            return
+        }
+        val latched = batteryBandLatch[address]
+        if (latched == null || reading.band.isWorseThan(latched)) {
+            batteryBandLatch[address] = reading.band
+        }
+    }
+
+    /**
+     * Camera name with its battery percentage appended, for the in-ride alert and the
+     * status-bar notification — "Ace Pro 2 38%".
+     *
+     * The percentage is omitted entirely when there is no usable reading, rather than
+     * shown as a placeholder. A percentage stamped on a start/stop alert carries an
+     * implied "right now", so quoting a twenty-minute-old number in one is worse than
+     * saying nothing at all — see [BatteryReading.isStale].
+     */
+    fun displayName(context: Context, address: String): String {
+        val name = displayName(context, address)
+        val percent = battery(address)?.percent ?: return name
+        return "$name $percent%"
     }
 
     /**
@@ -833,6 +982,19 @@ object Insta360ConnectionManager {
         connectedFlags[address] = false
         recordingFlags[address] = false
         recordingOwner[address] = RecordingOwner.NONE
+        clearBattery(address)
+    }
+
+    /**
+     * Drops a camera's battery state. Called on every disconnect: the reading was only
+     * ever a snapshot of what the camera last said, and once it's gone there is no reason
+     * to believe it still holds — a camera that comes back an hour later should show `--%`
+     * until it pushes a fresh level, not the number it had when it dropped. Clearing the
+     * latch too means the ratchet restarts from whatever the camera reports on reconnect.
+     */
+    private fun clearBattery(address: String) {
+        batteryReadings.remove(address)
+        batteryBandLatch.remove(address)
     }
 
     @Suppress("MissingPermission")
@@ -892,6 +1054,7 @@ object Insta360ConnectionManager {
                 override fun onDisconnected() {
                     Log.i(TAG, "Camera $address disconnected")
                     connectedFlags[address] = false
+                    clearBattery(address)
                     setRecording(address, false)
                     clients.remove(address)
                     retryLater(address)

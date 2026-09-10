@@ -191,12 +191,48 @@ Three data fields, all addable to any ride page.
 
 **Insta360 Recording Control** — tappable, fills red while any camera is recording.
 
-**Distance** — ride distance with a red dot flashing beside it while recording. Use it in
-place of your usual Distance field and the recording indicator costs you no page space at
-all.
+Optionally it can colour itself by battery level instead. Turn on **Colour the Recording
+Control tile by camera battery level** under **Ride Page Fields** and each *recording*
+camera takes an even stripe of the tile, coloured by how much battery it has left. Cameras
+that aren't recording get no stripe, so a coloured tile still means "something is rolling"
+— the colour just also tells you how much is left in each one. Up to three cameras are
+shown; a camera that drops out mid-ride loses its stripe and the rest expand to fill.
+
+**Distance** — ride distance, with each connected camera's battery percentage along the top
+left and the field label pushed to the right. Each camera gets a dot immediately left of
+its percentage, flashing while *that* camera is recording and coloured by its battery
+level. Use it in place of your usual Distance field and the recording indicator costs you
+no page space at all.
+
+Cameras that aren't connected show nothing at all — with none connected the field is just a
+plain distance field. A camera that's connected but hasn't reported its level yet shows
+`--%`.
 
 **Insta360 Recording** — a plain numeric field, 1 while any camera is recording and 0 when
 none are. Useful if you'd rather build your own layout around it.
+
+### Battery levels
+
+Cameras report their own battery level over Bluetooth, and the colours follow it:
+
+| Level | Colour |
+|---|---|
+| 80–100% | green |
+| 60–79% | yellow-green |
+| 40–59% | yellow |
+| 20–39% | orange |
+| 10–19% | red |
+| 0–9% | purple |
+
+The colour only ever gets *worse* during a ride, so a level bouncing across a boundary
+can't make a field flicker between two colours. It goes back up if the camera reports it's
+charging or the level genuinely climbs — running a camera off a battery pack works as
+you'd expect.
+
+Levels arrive only when the camera sends one, so a reading that's gone more than fifteen
+minutes without an update is treated as unknown rather than shown as current. Unknown
+levels display as `--%`, and a recording camera with an unknown level falls back to the
+plain recording red rather than to a colour that might be mistaken for "not recording".
 
 All of them render in light or dark. Karoo doesn't tell an extension whether your ride
 pages are light or dark, so set it yourself under **Ride Page Fields**. Full-width and
@@ -215,6 +251,11 @@ Heart rate and power are named individually here even though they share one latc
 internally, since "Effort trigger" left you guessing which of the two it meant. A stop
 alert names whichever trigger was holding the recording up until that moment, rather than
 the empty set it collapsed to.
+
+Both kinds of alert name the camera and its battery level — "Ace Pro 2 38% · Speed
+trigger". The level on a *stop* alert is the useful one: it's what you have left for the
+rest of the ride, at the moment you're deciding whether to record the next descent. If the
+level isn't known, just the camera name is shown.
 
 **Status bar notifications** for the same events are optional, under **Notifications**.
 They cover every start and stop from any source and apply to all saved cameras. On Android

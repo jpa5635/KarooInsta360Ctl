@@ -279,7 +279,10 @@ class Insta360Extension : KarooExtension(EXTENSION_ID, "1.0") {
      * cameras changing state close together don't cut off each other's alert.
      */
     private fun raiseRecordingAlert(address: String, recording: Boolean, reason: RecordingReason) {
-        val name = CameraStore.getCamera(this, address)?.name ?: address
+        // (2026-09-10) Name plus battery percentage — "Ace Pro 2 38%". The level at a stop
+        // is the more useful half: it tells you what's left for the rest of the ride at the
+        // moment you're deciding whether to record the next descent.
+        val name = Insta360ConnectionManager.displayName(this, address)
         // Camera name plus why it happened. The reason is the whole point of the
         // (2026-09-07) change: "Recording started — Ace Pro 2" tells you nothing you
         // couldn't see, while "Ace Pro 2 · Speed trigger" answers the question you

@@ -54,6 +54,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var manualAddButton: Button
     private lateinit var notifyCheckbox: CheckBox
     private lateinit var darkFieldThemeCheckbox: CheckBox
+    private lateinit var batteryColorCheckbox: CheckBox
     private lateinit var dataSourceLossTimeoutInput: EditText
     private lateinit var saveDataSourceLossTimeoutButton: Button
     private lateinit var activeProfileText: TextView
@@ -107,6 +108,7 @@ class MainActivity : AppCompatActivity() {
         manualAddButton = findViewById(R.id.manualAddButton)
         notifyCheckbox = findViewById(R.id.notifyOnRecordingChangeCheckbox)
         darkFieldThemeCheckbox = findViewById(R.id.darkFieldThemeCheckbox)
+        batteryColorCheckbox = findViewById(R.id.batteryColorCheckbox)
         dataSourceLossTimeoutInput = findViewById(R.id.dataSourceLossTimeoutInput)
         saveDataSourceLossTimeoutButton = findViewById(R.id.saveDataSourceLossTimeoutButton)
         activeProfileText = findViewById(R.id.activeProfileText)
@@ -125,6 +127,11 @@ class MainActivity : AppCompatActivity() {
         darkFieldThemeCheckbox.isChecked = AppSettings.isFieldThemeDark(this)
         darkFieldThemeCheckbox.setOnCheckedChangeListener { _, checked ->
             AppSettings.setFieldThemeDark(this, checked)
+        }
+
+        batteryColorCheckbox.isChecked = AppSettings.isRecordingColorFromBattery(this)
+        batteryColorCheckbox.setOnCheckedChangeListener { _, checked ->
+            AppSettings.setRecordingColorFromBattery(this, checked)
         }
 
         notifyCheckbox.isChecked = AppSettings.isRecordingNotificationEnabled(this)

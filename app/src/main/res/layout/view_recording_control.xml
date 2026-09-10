@@ -1,19 +1,65 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- RemoteViews for the "Recording Control" ride-page data field (see
      RecordingControlDataType.kt). Whole-view clickable — RemoteViews only supports a
-     limited set of widgets/attributes, so this stays deliberately simple: one root
-     container the click lands on, one TextView showing current state. -->
+     limited set of widgets/attributes, so this stays deliberately simple.
+
+     (2026-09-10) The single full-cell TextView became a two-layer FrameLayout: a row of
+     per-camera battery stripes underneath, and the text in a rounded box on top.
+
+     Three stripes are declared rather than built at runtime. RemoteViews can add children
+     dynamically (removeAllViews + addView), but addView is deprecated as of API 31 and the
+     Karoo is API 32, so this stays with declared views. Note that a GONE child does *not*
+     reserve space: it drops out of layout_weight distribution entirely, so one visible
+     stripe fills the cell, two split it in half, three in thirds — no gaps, no
+     pre-allocation, and a camera lost mid-ride simply repaints with one stripe fewer. -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/recordingControlRoot"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="#40000000">
 
-    <TextView
-        android:id="@+id/recordingControlText"
+    <LinearLayout
+        android:id="@+id/recordingStripeRow"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
+        android:orientation="horizontal">
+
+        <View
+            android:id="@+id/recordingStripe1"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:visibility="gone" />
+
+        <View
+            android:id="@+id/recordingStripe2"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:visibility="gone" />
+
+        <View
+            android:id="@+id/recordingStripe3"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:visibility="gone" />
+
+    </LinearLayout>
+
+    <!-- wrap_content, not match_parent: the box is sized to the text so the stripes stay
+         visible above and below it even on a half-width cell. -->
+    <TextView
+        android:id="@+id/recordingControlText"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
         android:gravity="center"
+        android:paddingStart="10dp"
+        android:paddingEnd="10dp"
+        android:paddingTop="6dp"
+        android:paddingBottom="6dp"
+        android:background="@drawable/bg_field_text_box_dark"
         android:textColor="#FFFFFF"
         android:textStyle="bold"
         android:textSize="14sp"
