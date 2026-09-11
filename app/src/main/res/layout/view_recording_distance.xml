@@ -100,7 +100,14 @@
 
         </LinearLayout>
 
-        <!-- Weight, not family, is the lever on this device.
+        <!-- includeFontPadding is false here to match every other TextView in this file.
+             It was true, with no reason recorded, and that was the gap: the flag reserves
+             the font's full ascent AND descent, and these are digits, which have no
+             descender to reserve for. The reserved-but-unused band sat between the label
+             row and the number, which is why the spacing looked wider than a native Karoo
+             field's.
+
+             Weight, not family, is the lever on this device.
              /system/etc/fonts.xml remaps "sans-serif" to IBM Plex Sans with non-standard
              weight mappings: 100=Thin, 200=Light, 300=Regular, 400=Medium, 700=SemiBold,
              900=Bold. A TextView defaults to weight 400, so we were rendering in IBM Plex
@@ -135,7 +142,7 @@
             android:layout_height="0dp"
             android:layout_weight="1"
             android:gravity="center"
-            android:includeFontPadding="true"
+            android:includeFontPadding="false"
             android:maxLines="1"
             android:fontFamily="sans-serif"
             android:textFontWeight="300"

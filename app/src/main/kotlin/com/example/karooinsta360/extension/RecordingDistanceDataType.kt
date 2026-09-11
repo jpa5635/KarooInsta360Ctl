@@ -250,14 +250,21 @@ class RecordingDistanceDataType(
          * Compensates for the label row our layout adds, which Karoo's own textSize figure
          * doesn't account for.
          *
-         * Raised from 0.88 (2026-09-11): the value was noticeably shorter than neighbouring
-         * stock fields. 0.88 was set when the top row also held a recording dot and, later,
-         * a dot stacked under each percentage; that row is a single line of text now, so
-         * most of the headroom it was reserving is no longer needed. If the bottoms of the
-         * digits ever clip on a short cell, this is the dial — lower it before touching
-         * anything else.
+         * 0.88 -> 0.96 -> 1.0 (2026-09-11). 1.0 is not a guess: Karoo's textSize is what a
+         * stock field renders its value at alongside its own header, and our label row
+         * takes about the space that header would, so matching it exactly is what makes
+         * our digits the same height as the ones beside them.
+         *
+         * The earlier reductions were compensating for something else. The value looked
+         * short and the gap above it looked wide, but the cause was includeFontPadding on
+         * the value TextView reserving a descender that digits don't have — shrinking the
+         * text only made the number smaller while leaving the gap exactly where it was.
+         *
+         * Note that nothing here measures the cell. The size is derived from Karoo's
+         * figure, then the value row centres whatever it gets in the leftover height. If
+         * digits ever clip on a short cell, lower this before touching anything else.
          */
-        private const val VALUE_SIZE_RATIO = 0.96f
+        private const val VALUE_SIZE_RATIO = 1.0f
         private const val MIN_LABEL_SP = 10f
 
         /**
