@@ -265,9 +265,8 @@ half-width layouts are handled automatically from whichever cell you drop the fi
 
 ## Notifications
 
-**In-ride alerts** appear on every start and stop, and always state the reason — "HR
-trigger", "Pwr trigger", "Speed trigger", "Radar trigger", "via Karoo field", "via Karoo
-button", "on cam". So when a camera starts itself mid-descent, you know which trigger
+**In-ride alerts** appear on every start and stop, and always state the reason — "HR",
+"Pwr", "Speed", "Radar", "via Karoo field", "via Karoo button", "on cam". So when a camera starts itself mid-descent, you know which trigger
 did it rather than guessing.
 
 They're phrased to complete the alert's own heading rather than to stand alone — you read

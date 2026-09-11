@@ -12,7 +12,7 @@ package com.example.karooinsta360
  * want in a log and exactly what you don't want on a bike computer at 40kph.
  *
  * So this carries both. [logText] is the same detail as before, unchanged, and still what
- * goes to logcat. [alertText] is the short rider-facing version — "Speed trigger", "via
+ * goes to logcat. [alertText] is the short rider-facing version — "Speed", "via
  * Karoo field" — that the alert shows. One value, two audiences, no risk of the two
  * drifting apart because they're derived from the same construction site.
  *
@@ -72,7 +72,11 @@ sealed class RecordingReason {
                 // rather than "Trigger released", which named nothing and stated the
                 // obvious on a "Recording stopped" alert.
                 "none" -> ""
-                else -> latches.split("+").joinToString("+") { latchLabel(it) } + " trigger"
+                // No " trigger" suffix: the alert's own heading already says "Recording
+                // started"/"Recording stopped", so the word states what the line is
+                // obviously about and costs characters on a line that was truncating.
+                // "Recording started" · "HR+Pwr" reads fine.
+                else -> latches.split("+").joinToString("+") { latchLabel(it) }
             }
 
         override val logText: String get() = "$latches ($detail)"

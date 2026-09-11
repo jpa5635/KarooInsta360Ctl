@@ -74,6 +74,16 @@ object ProfileStore {
     ) {
         companion object {
             /**
+             * Low enough that it only bites when a camera genuinely can't finish the ride,
+             * rather than second-guessing a rider who started out at 40%.
+             *
+             * Declared BEFORE [DEFAULT], which references it. Companion properties
+             * initialise in declaration order, so the other way round compiles to a read of
+             * an uninitialised value and the Kotlin compiler rejects it outright.
+             */
+            const val DEFAULT_BATTERY_FLOOR_PERCENT = 10
+
+            /**
              * Every trigger off, otherwise matching the same defaults a brand new camera
              * used to get back when it carried its own settings (Radar's 100-unit/0s
              * start/15s stop preset in particular — see the old `CameraConfig`'s history —
@@ -91,12 +101,6 @@ object ProfileStore {
                 batteryFloorEnabled = false,
                 batteryFloorPercent = DEFAULT_BATTERY_FLOOR_PERCENT,
             )
-
-            /**
-             * Low enough that it only bites when a camera genuinely can't finish the ride,
-             * rather than second-guessing a rider who started out at 40%.
-             */
-            const val DEFAULT_BATTERY_FLOOR_PERCENT = 10
         }
     }
 
