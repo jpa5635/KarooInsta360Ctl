@@ -759,7 +759,7 @@ object Insta360ConnectionManager {
      * saying nothing at all — see [BatteryReading.isStale].
      */
     fun displayName(context: Context, address: String): String {
-        val name = displayName(context, address)
+        val name = CameraStore.getCamera(context, address)?.name ?: address
         val percent = battery(address)?.percent ?: return name
         return "$name $percent%"
     }
@@ -884,7 +884,7 @@ object Insta360ConnectionManager {
         val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
         ensureNotificationChannel(notificationManager)
 
-        val name = CameraStore.getCamera(context, address)?.name ?: address
+        val name = displayName(context, address)
         val notification = NotificationCompat.Builder(context, NOTIFICATION_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_extension)
             .setContentTitle(if (recording) "Recording started" else "Recording stopped")
