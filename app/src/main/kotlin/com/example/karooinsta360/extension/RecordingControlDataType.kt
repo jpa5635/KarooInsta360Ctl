@@ -88,12 +88,23 @@ class RecordingControlDataType(extension: String) : DataTypeImpl(extension, TYPE
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
             )
 
-            // A half-width cell can't fit "REC — Tap to Stop" on one line at a legible
-            // size, and a full-width one looks sparse with it broken over two. Same
-            // information either way, laid out for the space actually available.
+            // While recording, the battery level replaces "Tap to Stop". The tap
+            // instruction was the least useful thing the cell could say — a tile that
+            // reads REC is self-evidently tappable — and the percentage is what you
+            // actually want mid-ride.
+            //
+            // One "@ X%" per recording camera, in the same order as the stripes beneath.
+            // A camera with no usable reading contributes nothing rather than an "@ --%",
+            // so with no levels at all this degrades to a bare "REC".
+            val levels = recordingCameras.mapNotNull { it.batteryPercent }
+            val suffix = if (levels.isEmpty()) "" else levels.joinToString(" ") { "@ $it%" }
+
             val text = when {
-                recording && fullWidth -> "\u25CF REC \u2014 Tap to Stop"
-                recording -> "\u25CF REC\nTap to Stop"
+                recording && suffix.isEmpty() -> "\u25CF REC"
+                // Half-width can't fit the level on the same line at a legible size;
+                // full-width looks sparse with it broken over two.
+                recording && fullWidth -> "\u25CF REC $suffix"
+                recording -> "\u25CF REC\n$suffix"
                 fullWidth -> "Tap to Start"
                 else -> "Tap to\nStart"
             }

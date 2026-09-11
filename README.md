@@ -189,7 +189,9 @@ same camera is unaffected and can keep recording on its own. 0 waits forever.
 
 Three data fields, all addable to any ride page.
 
-**Insta360 Recording Control** — tappable, fills red while any camera is recording.
+**Insta360 Recording Control** — tappable, fills red while any camera is recording. While
+recording it reads `REC @ 87%`, with one level per recording camera; it falls back to a
+plain `REC` when no level is known yet.
 
 Optionally it can colour itself by battery level instead. Turn on **Colour the Recording
 Control tile by camera battery level** under **Ride Page Fields** and each *recording*
