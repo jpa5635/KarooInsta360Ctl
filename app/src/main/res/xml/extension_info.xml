@@ -12,9 +12,14 @@
         graphical="false"
         icon="@drawable/ic_extension" />
 
+    <!-- displayName is what Karoo draws as this tile's header on the ride page, since
+         unlike the distance field this one doesn't suppress the header and draw its own.
+         Short on purpose: the header eats height from a cell whose whole job is a big
+         tappable target, and a long name wraps or truncates there. Note the same string is
+         what you look for in the field picker. -->
     <DataType
         typeId="recording_control"
-        displayName="Insta360 Recording Control"
+        displayName="INSTA CTRL"
         description="Tap to start every connected camera, or stop every recording one"
         graphical="true"
         icon="@drawable/ic_extension" />

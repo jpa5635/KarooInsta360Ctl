@@ -108,7 +108,7 @@ A few details worth knowing:
 
 ### Manual: the data field
 
-Add **Insta360 Recording Control** to any ride page. It's tappable: tap to start every
+Add **INSTA CTRL** to any ride page. It's tappable: tap to start every
 connected camera, tap again to stop every recording one. It fills red while any camera is
 recording, so it doubles as an indicator.
 
@@ -189,7 +189,7 @@ same camera is unaffected and can keep recording on its own. 0 waits forever.
 
 Three data fields, all addable to any ride page.
 
-**Insta360 Recording Control** — tappable, fills red while any camera is recording. While
+**INSTA CTRL** — tappable, fills red while any camera is recording. While
 recording it reads `REC @ 87%`, with one level per recording camera; it falls back to a
 plain `REC` when no level is known yet.
 
