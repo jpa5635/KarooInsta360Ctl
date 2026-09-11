@@ -24,7 +24,15 @@ class Insta360BleClient(
     interface Listener {
         fun onConnected()
         fun onDisconnected()
-        fun onCommandResponse(commandCode: Int, sequence: Int, payload: ByteArray)
+        /**
+         * @param responseCode the code in the inbound frame. For this protocol that is an
+         *   HTTP-like *status*, not an echo of what was asked — 200 (0xC8) for OK, 500 for
+         *   error — so it identifies nothing about which request this answers.
+         * @param requestCode the command code originally sent under this sequence number,
+         *   or -1 if unknown. This is the only way to tell a capture-status reply from a
+         *   battery reply; matching on responseCode can never work.
+         */
+        fun onCommandResponse(responseCode: Int, requestCode: Int, sequence: Int, payload: ByteArray)
         fun onNotification(notificationCode: Int, payload: ByteArray)
         fun onError(message: String)
     }
@@ -61,6 +69,16 @@ class Insta360BleClient(
         const val CMD_GET_CURRENT_CAPTURE_STATUS = 15 // 0x0F
 
         /**
+         * PHONE_COMMAND_GET_OPTIONS. The request body is a `GetOptions` message whose
+         * field 1 is a repeated `OptionType`; the reply is `GetOptionsResp`, field 2 of
+         * which is an `Options` message.
+         */
+        const val CMD_GET_OPTIONS = 8
+
+        /** `OptionType.BATTERY_STATUS`. */
+        const val OPTION_TYPE_BATTERY_STATUS = 11
+
+        /**
          * **Added (2026-09-07)** — unsolicited notification codes the camera pushes on
          * BE82 without being asked, catalogued from `pkg/protocol/messagecode` in
          * xaionaro-go/insta360ctl. [handleIncoming] already separates these from command
@@ -89,6 +107,9 @@ class Insta360BleClient(
          * frame is a notification.
          */
         const val NOTIFY_CODE_FLOOR = 0x2000
+
+        /** Sequence numbers wrap at 254, so this only has to outlive a few round trips. */
+        private const val MAX_PENDING_REQUESTS = 32
 
         /** Matches insta360ctl, which sets 517 before subscribing. */
         const val REQUESTED_MTU = 517
@@ -382,6 +403,7 @@ class Insta360BleClient(
             return -1
         }
         val sequence = nextSeq()
+        rememberRequest(sequence, commandCode)
         val header = ByteArray(16)
         writeU32LE(header, 0, 16 + protobufPayload.size) // total_inner_size, header included
         header[4] = 0x04
@@ -487,6 +509,26 @@ class Insta360BleClient(
     //   field 1 (string):  authorization_id  — identifies this app/device pairing
     //   field 2 (string):  findmy_token      — optional, omitted here
     //   field 3 (varint):  initiator_type    — who initiated the check (APP = 2)
+    /**
+     * Ask for the battery level.
+     *
+     * The camera does NOT push this. 0x2003 (NOTIFY_BATTERY_UPDATE) exists in the code
+     * table but an Ace Pro 2 never sends it — a logcat over several minutes shows it
+     * pushing 0x2017, 0x201b, 0x203a, 0x203c, 0x2040 and 0x206a, none of which carries
+     * anything in a percentage range. The level has to be requested.
+     *
+     * Body is `GetOptions { option_types: [BATTERY_STATUS] }`, i.e. the two bytes 08 0B.
+     * The reply nests the answer two messages deep — see
+     * `Insta360ConnectionManager.handleBatteryResponse`.
+     */
+    fun queryBatteryStatus(): Int {
+        Log.i(TAG, "queryBatteryStatus() called")
+        val payload = ProtoWriter()
+            .varintField(1, OPTION_TYPE_BATTERY_STATUS)
+            .toByteArray()
+        return sendCommand(CMD_GET_OPTIONS, payload)
+    }
+
     fun checkAuthorization(): Int {
         Log.i(TAG, "checkAuthorization() called, authorization_id=$deviceAddress")
         val payload = ProtoWriter()
@@ -606,9 +648,28 @@ class Insta360BleClient(
         if (isNotification || (fromCamera && sequence == 0)) {
             listener.onNotification(commandCode, combined)
         } else {
-            listener.onCommandResponse(commandCode, sequence, combined)
+            listener.onCommandResponse(commandCode, takeRequest(sequence), sequence, combined)
         }
     }
+
+    /**
+     * Sequence number -> the command code we sent under it, so a reply can be matched to
+     * its request. Bounded and evicted oldest-first: a command whose reply never arrives
+     * must not pin an entry forever.
+     */
+    private val pendingRequests = object : LinkedHashMap<Int, Int>(16, 0.75f, false) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Int, Int>?): Boolean =
+            size > MAX_PENDING_REQUESTS
+    }
+
+    @Synchronized
+    private fun rememberRequest(sequence: Int, commandCode: Int) {
+        pendingRequests[sequence] = commandCode
+    }
+
+    /** Consumes and returns the command code sent under [sequence], or -1 if unknown. */
+    @Synchronized
+    private fun takeRequest(sequence: Int): Int = pendingRequests.remove(sequence) ?: -1
 
     private fun nextSeq(): Int {
         val s = seq.getAndUpdate { if (it >= 254) 1 else it + 1 }

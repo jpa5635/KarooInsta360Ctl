@@ -57,15 +57,27 @@ object Insta360ConnectionManager {
     private const val LOCAL_CHANGE_GRACE_MS = 5_000L
 
     /**
-     * Protobuf field numbers assumed to carry the battery percentage and charging flag in
-     * a 0x2003/0x2004 push. Field 1 is the conventional slot for the primary value; the
-     * charging flag is a guess and simply reads as "not charging" if absent.
-     *
-     * Both are assumptions, and [handleBatteryPayload] logs every varint field it finds
-     * precisely so a single ride's logcat is enough to correct them here.
+     * Field numbers for the battery reply — see [handleBatteryResponse]. These come from
+     * the published .proto definitions for this protocol, not from guesswork.
      */
-    private const val BATTERY_PERCENT_FIELD = 1
-    private const val BATTERY_CHARGING_FIELD = 2
+    private const val GET_OPTIONS_VALUE_FIELD = 2
+    private const val OPTIONS_BATTERY_STATUS_FIELD = 11
+    private const val BATTERY_POWER_TYPE_FIELD = 1
+    private const val BATTERY_LEVEL_FIELD = 2
+    private const val BATTERY_SCALE_FIELD = 3
+
+    /** `BatteryStatus.PowerType.ADAPTER` — the camera is running on external power. */
+    private const val POWER_TYPE_ADAPTER = 1L
+
+    /** `CaptureStatus` field 1, the state flag both the push and the poll carry. */
+    private const val CAPTURE_STATUS_STATE_FIELD = 1
+
+    /**
+     * How often to ask for the battery level, as a multiple of [STATUS_POLL_INTERVAL_MS].
+     * Six ticks is a minute — a battery moves a percent every few minutes at most, and
+     * every query costs a BLE round trip that competes with the status poll.
+     */
+    private const val BATTERY_POLL_EVERY_N_TICKS = 6
 
     /**
      * How far the reported percentage must climb before the band latch releases — see
@@ -135,7 +147,7 @@ object Insta360ConnectionManager {
     private val recordingFlags = ConcurrentHashMap<String, Boolean>()
     private val recordingOwner = ConcurrentHashMap<String, RecordingOwner>()
 
-    /** Last battery percentage each camera pushed. See [handleBatteryPayload]. */
+    /** Last battery percentage read back from each camera. See [handleBatteryResponse]. */
     private val batteryReadings = ConcurrentHashMap<String, BatteryReading>()
 
     /**
@@ -508,6 +520,12 @@ object Insta360ConnectionManager {
         override fun run() {
             val connected = clients.keys.filter { isConnected(it) }
             connected.forEach { clients[it]?.queryCaptureStatus() }
+            // Battery rides along on this timer rather than getting its own, so the two
+            // never issue overlapping round trips to the same camera.
+            pollTick++
+            if (pollTick % BATTERY_POLL_EVERY_N_TICKS == 0) {
+                connected.forEach { clients[it]?.queryBatteryStatus() }
+            }
             if (connected.isNotEmpty()) {
                 handler.postDelayed(this, STATUS_POLL_INTERVAL_MS)
             } else {
@@ -517,6 +535,9 @@ object Insta360ConnectionManager {
     }
 
     @Volatile private var statusPollRunning = false
+
+    /** Counts [statusPoll] ticks so the battery query can run on a slower cadence. */
+    @Volatile private var pollTick = 0
 
     /** Set by the first inbound frame of any kind. See the silence warning on connect. */
     @Volatile private var anyFrameReceived = false
@@ -608,18 +629,18 @@ object Insta360ConnectionManager {
                     reason = RecordingReason.CameraFault(RecordingReason.CameraFault.Fault.STORAGE_FULL),
                 )
 
-            // **Added (2026-09-10)** — both of these used to be discarded: 0x2003 had no
-            // branch at all and fell through to the debug log, and 0x2004 only logged a
-            // warning. The camera was already pushing its battery level and nothing was
-            // reading it.
-            Insta360BleClient.NOTIFY_BATTERY_UPDATE ->
-                handleBatteryPayload(address, payload, source = "battery-update")
+            // An Ace Pro 2 sends neither of these — the level is polled instead, see
+            // [handleBatteryResponse]. They're kept because the codes are real and another
+            // model may well use them, and because either one arriving is a reason to
+            // refresh the level immediately rather than wait out the poll interval.
+            Insta360BleClient.NOTIFY_BATTERY_UPDATE -> {
+                Log.i(TAG, "[$address] battery-update push: $hex — refreshing level")
+                clients[address]?.queryBatteryStatus()
+            }
 
             Insta360BleClient.NOTIFY_BATTERY_LOW -> {
                 Log.w(TAG, "[$address] camera battery low: $hex")
-                // The low-battery push may or may not carry a percentage. Parse it the
-                // same way and take one if it's there; the warning above stands either way.
-                handleBatteryPayload(address, payload, source = "battery-low")
+                clients[address]?.queryBatteryStatus()
             }
 
             Insta360BleClient.NOTIFY_SHUTDOWN ->
@@ -689,47 +710,129 @@ object Insta360ConnectionManager {
     }
 
     /**
-     * Best-effort read of a battery percentage out of a camera push.
+     * Returns the raw bytes of a length-delimited (wire type 2) field at the top level of
+     * [payload], or null if it isn't there.
      *
-     * **The schema is unconfirmed for the Ace Pro 2 and this deliberately fails closed**,
-     * exactly like [handleCaptureStatusPayload]. Every varint field in the payload is
-     * logged, so one ride's logcat identifies which field actually carries the percentage
-     * and correcting a wrong guess is a one-line change to [BATTERY_PERCENT_FIELD] rather
-     * than another round of speculation.
-     *
-     * A value outside 0..100 is not a percentage — it's some other field that happens to
-     * sit in the slot we're reading. Those are logged and dropped rather than displayed,
-     * because a battery field showing "4096%" is worse than one showing nothing.
+     * [parseVarintFields] walks past these without looking inside, which is why every
+     * nested value in this protocol has been invisible to us. Both things this code needs
+     * are nested: a polled capture status arrives wrapped in an outer message, and a
+     * battery level sits two levels down.
      */
-    private fun handleBatteryPayload(address: String, payload: ByteArray, source: String) {
+    private fun subMessage(payload: ByteArray, fieldNumber: Int): ByteArray? {
+        var i = 0
+        while (i < payload.size) {
+            val tag = payload[i].toInt() and 0xFF
+            if (tag == 0) return null
+            val field = tag shr 3
+            val wireType = tag and 0x07
+            i++
+            when (wireType) {
+                0 -> {
+                    while (i < payload.size && (payload[i].toInt() and 0x80) != 0) i++
+                    i++
+                }
+                1 -> i += 8
+                2 -> {
+                    if (i >= payload.size) return null
+                    val len = payload[i].toInt() and 0xFF
+                    i++
+                    if (i + len > payload.size) return null
+                    if (field == fieldNumber) return payload.copyOfRange(i, i + len)
+                    i += len
+                }
+                5 -> i += 4
+                else -> return null
+            }
+        }
+        return null
+    }
+
+    /**
+     * A polled `GetCurrentCaptureStatus` reply, which wraps the same message the 0x2010
+     * push delivers bare.
+     *
+     * The eight-byte reply seen on an Ace Pro 2 is two bytes longer than the six-byte push
+     * body, which is exactly a wire-type-2 tag and length. Rather than hard-code field 2,
+     * this tries the payload as-is first and then each nested message, since a wrong guess
+     * here would silently re-break the backstop in the same invisible way it was broken
+     * before.
+     */
+    private fun handleCaptureStatusResponse(address: String, payload: ByteArray) {
+        // Nested first, deliberately. The wrapped form is what this camera actually sends,
+        // and an outer message can carry its own field 1 for unrelated reasons — reading
+        // that as the capture state would invent a recording change out of nothing.
+        for (field in 1..4) {
+            val nested = subMessage(payload, field) ?: continue
+            if (parseVarintFields(nested).containsKey(CAPTURE_STATUS_STATE_FIELD)) {
+                Log.i(TAG, "[$address] status query: capture status found in field $field")
+                handleCaptureStatusPayload(address, nested, source = "status query")
+                return
+            }
+        }
+        if (parseVarintFields(payload).containsKey(CAPTURE_STATUS_STATE_FIELD)) {
+            handleCaptureStatusPayload(address, payload, source = "status query")
+            return
+        }
+        Log.w(
+            TAG,
+            "[$address] status query: no capture status in reply " +
+                "raw=${payload.joinToString(" ") { "%02X".format(it) }}",
+        )
+    }
+
+    /**
+     * A `GetOptionsResp` carrying `BATTERY_STATUS`.
+     *
+     * Shape, from the published reverse engineering of this protobuf protocol:
+     * `GetOptionsResp.value` is field 2 (an `Options`), `Options.battery_status` is field
+     * 11 (a `BatteryStatus`), and within that field 1 is `power_type` (0 = BATTERY,
+     * 1 = ADAPTER), field 2 is `battery_level` and field 3 is `battery_scale`.
+     *
+     * Unlike the 0.1.32 attempt this is a documented layout rather than a guess, but it
+     * still fails closed and logs the bytes: this camera has already proved it doesn't
+     * always match the reference material.
+     */
+    private fun handleBatteryResponse(address: String, payload: ByteArray) {
         val hex = payload.joinToString(" ") { "%02X".format(it) }
-        if (payload.isEmpty()) {
-            Log.i(TAG, "[$address] battery ($source): empty payload, ignoring")
+        val options = subMessage(payload, GET_OPTIONS_VALUE_FIELD)
+        val battery = options?.let { subMessage(it, OPTIONS_BATTERY_STATUS_FIELD) }
+        if (battery == null) {
+            Log.w(TAG, "[$address] battery: no BatteryStatus in GetOptionsResp raw=$hex")
             return
         }
 
-        val fields = parseVarintFields(payload)
-        Log.i(TAG, "[$address] battery ($source): raw=$hex varintFields=$fields")
+        val fields = parseVarintFields(battery)
+        Log.i(TAG, "[$address] battery: BatteryStatus fields=$fields")
 
-        val raw = fields[BATTERY_PERCENT_FIELD]
-        if (raw == null) {
-            Log.i(TAG, "[$address] battery ($source): no field $BATTERY_PERCENT_FIELD — level unchanged")
+        val level = fields[BATTERY_LEVEL_FIELD]
+        if (level == null) {
+            Log.w(TAG, "[$address] battery: no battery_level in $fields")
             return
         }
-        if (raw < 0L || raw > 100L) {
-            Log.w(TAG, "[$address] battery ($source): field $BATTERY_PERCENT_FIELD = $raw is not a percentage — ignoring")
+        // battery_scale is what battery_level is out of. It is 100 on every device seen,
+        // but reading it rather than assuming costs nothing and a camera reporting out of
+        // 255 would otherwise sit permanently in the green band.
+        val scale = fields[BATTERY_SCALE_FIELD]?.takeIf { it > 0 } ?: 100L
+        val percent = ((level * 100) / scale).toInt()
+        if (percent !in 0..100) {
+            Log.w(TAG, "[$address] battery: level=$level scale=$scale out of range — ignoring")
             return
         }
 
-        val percent = raw.toInt()
-        val charging = fields[BATTERY_CHARGING_FIELD]?.let { it != 0L } ?: false
+        val charging = fields[BATTERY_POWER_TYPE_FIELD] == POWER_TYPE_ADAPTER
         val reading = BatteryReading(percent, charging)
         val previous = batteryReadings.put(address, reading)
-
         updateBandLatch(address, reading, previous)
+        Log.i(
+            TAG,
+            "[$address] battery: $percent%${if (charging) " (charging)" else ""} " +
+                "band=${batteryBand(address)}",
+        )
 
-        Log.i(TAG, "[$address] battery ($source): $percent%${if (charging) " (charging)" else ""} band=${batteryBand(address)}")
-        listeners.forEach { it.onCameraStateChanged(address) }
+        // Only when the number actually moved. A reading identical to the last one is not
+        // news, and every one of these repaints every placed field and pushes a StreamState
+        // over karoo-ext.
+        if (previous?.percent != percent) notifyChanged(address)
     }
 
     /**
@@ -1042,6 +1145,9 @@ object Insta360ConnectionManager {
                     // clients[address] rather than the local `client`, which isn't
                     // initialised yet from inside its own listener.
                     clients[address]?.queryCaptureStatus()
+                    // Once up front too: waiting a full battery-poll interval would leave
+                    // the fields showing --% for the first minute after every connect.
+                    clients[address]?.queryBatteryStatus()
                     ensureStatusPollRunning()
 
                     // If nothing at all has come back by now, say so plainly rather than
@@ -1068,14 +1174,19 @@ object Insta360ConnectionManager {
                     retryLater(address)
                 }
 
-                override fun onCommandResponse(commandCode: Int, sequence: Int, payload: ByteArray) {
+                override fun onCommandResponse(
+                    responseCode: Int,
+                    requestCode: Int,
+                    sequence: Int,
+                    payload: ByteArray,
+                ) {
                     anyFrameReceived = true
                     Log.i(
                         TAG,
-                        "[$address] Response cmd=0x${commandCode.toString(16)} seq=$sequence " +
-                            "len=${payload.size} varintFields=${parseVarintFields(payload)}",
+                        "[$address] Response status=$responseCode req=$requestCode seq=$sequence " +
+                            "len=${payload.size} raw=${payload.joinToString(" ") { "%02X".format(it) }}",
                     )
-                    if (commandCode == Insta360BleClient.CMD_CHECK_AUTHORIZATION) {
+                    if (requestCode == Insta360BleClient.CMD_CHECK_AUTHORIZATION) {
                         // Enum values in CheckAuthorizationResp aren't known for this model
                         // yet, so this logs the decoded fields rather than acting on a
                         // guess. Once one real response is seen, deciding whether to follow
@@ -1083,8 +1194,18 @@ object Insta360ConnectionManager {
                         // itself) is a small change.
                         Log.i(TAG, "[$address] CheckAuthorization response — fields above decide next step")
                     }
-                    if (commandCode == Insta360BleClient.CMD_GET_CURRENT_CAPTURE_STATUS) {
-                        handleCaptureStatusPayload(address, payload, source = "status query")
+                    // **Fixed (2026-09-11)** — this used to compare the *response* code
+                    // against CMD_GET_CURRENT_CAPTURE_STATUS (15). Responses come back with
+                    // an HTTP-like status instead — 200 (0xC8) for OK — so the comparison
+                    // was never once true and every polled status has been discarded since
+                    // the poll was written. All recording state has in fact been coming
+                    // from 0x2010 pushes alone, leaving the 10-second backstop that exists
+                    // to catch a *missed* push doing nothing at all.
+                    if (requestCode == Insta360BleClient.CMD_GET_CURRENT_CAPTURE_STATUS) {
+                        handleCaptureStatusResponse(address, payload)
+                    }
+                    if (requestCode == Insta360BleClient.CMD_GET_OPTIONS) {
+                        handleBatteryResponse(address, payload)
                     }
                 }
 

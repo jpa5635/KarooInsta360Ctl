@@ -229,10 +229,11 @@ can't make a field flicker between two colours. It goes back up if the camera re
 charging or the level genuinely climbs — running a camera off a battery pack works as
 you'd expect.
 
-Levels arrive only when the camera sends one, so a reading that's gone more than fifteen
-minutes without an update is treated as unknown rather than shown as current. Unknown
-levels display as `--%`, and a recording camera with an unknown level falls back to the
-plain recording red rather than to a colour that might be mistaken for "not recording".
+The level is asked for about once a minute, and again right after connecting. A reading
+that's gone more than five minutes without a fresh answer is treated as unknown rather than
+shown as current. Unknown levels display as `--%`, and a recording camera with an unknown
+level falls back to the plain recording red rather than to a colour that might be mistaken
+for "not recording".
 
 All of them render in light or dark. Karoo doesn't tell an extension whether your ride
 pages are light or dark, so set it yourself under **Ride Page Fields**. Full-width and

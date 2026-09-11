@@ -28,13 +28,12 @@ data class BatteryReading(
         /**
          * How old a reading may be before it stops being shown at all.
          *
-         * The Ace Pro 2's push cadence for 0x2003 is not yet known — it may be periodic or
-         * it may only fire when the percentage actually changes. Fifteen minutes is chosen
-         * to be generous enough that an on-change-only camera doesn't blank the field
-         * during a slow-drain hour, while still being short enough that a number on screen
-         * is worth trusting. Tighten it once a ride's logcat shows the real cadence.
+         * The level is polled about once a minute, so anything approaching five minutes
+         * means several queries in a row went unanswered — the camera is present enough to
+         * hold a GATT link but not to reply, and the last number is no longer worth
+         * showing.
          */
-        const val STALE_AFTER_MS = 15 * 60 * 1000L
+        const val STALE_AFTER_MS = 5 * 60 * 1000L
     }
 }
 
