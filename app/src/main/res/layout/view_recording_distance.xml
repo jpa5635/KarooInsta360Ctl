@@ -121,25 +121,30 @@
 
              If Regular still reads heavy, 200 gives Light.
 
-             (2026-09-11, settled) weight 300 with textScaleX 0.95.
+             (2026-09-11, settled) weight 400 with textScaleX 0.87 on the VALUE. The label
+             and the battery percentages stay at 300 — they are not condensed, so they need
+             the lighter face to match.
 
-             The search is bracketed, so don't repeat it. Three combinations were tried on
-             the device against a stock field: 1.00 x Regular was correct weight but ~10%
-             too wide; 0.90 x Regular was the right width but read thin; 0.90 x Medium read
-             too bold. There is nothing between Regular and Medium to ask for —
-             textFontWeight snaps to the faces that exist on this device (100/200/300/400/
-             700/900 as mapped below), so 350 resolves to one of its neighbours.
+             The thing that makes this tractable: the stem thickness you actually see is
+             the face's weight multiplied by textScaleX, because the condense scales the
+             rendered glyph rather than picking a narrower design. That gives a continuous
+             range even though only two faces are usable. Measured against a stock field,
+             in units of Regular's stem:
 
-             That leaves textScaleX as the only continuous control, and it moves width and
-             stroke by the same factor, so the two cannot be set independently with this
-             family. 0.95 takes half the thinness of 0.90 and gives back half the width —
-             the midpoint of the two nearest acceptable options.
+               Medium  x 0.90  = 1.04   too bold
+               Medium  x 0.87  = 1.00   <- here
+               Regular x 0.95  = 0.95   slightly light
+               Regular x 0.87  = 0.87   clearly light
 
-             The one way to have both is a genuinely condensed face, which narrows the
-             glyph by design while keeping the stem. This device carries
-             "ibm-plex-sans-condensed", but it ships at a single heavy weight (600), which
-             is likely to overshoot in the direction we just rejected. Worth an experiment,
-             not worth assuming.
+             So weight and width are not independent, but they are not locked together
+             either: pick the width with textScaleX, then pick whichever face lands the
+             product where you want it. Changing one without reconsidering the other is
+             what made this take several rounds.
+
+             Note textFontWeight snaps to the faces that exist on this device
+             (100/200/300/400/700/900 as mapped below) — an intermediate value like 350
+             just resolves to a neighbour, so the product above is the only way to land
+             between Regular and Medium.
 
              (2026-09-11) textScaleX: 0.92 -> 1.0 -> 0.90. The earlier note that it
              condenses "without touching the stroke" is wrong — the transform applies to the
@@ -165,7 +170,7 @@
             android:includeFontPadding="false"
             android:maxLines="1"
             android:fontFamily="sans-serif"
-            android:textFontWeight="300"
+            android:textFontWeight="400"
             android:textStyle="normal"
             android:textScaleX="0.87"
             android:textSize="28sp"
