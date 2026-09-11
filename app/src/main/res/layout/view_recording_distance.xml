@@ -135,7 +135,8 @@
                Medium  x 0.87   too heavy
                Medium  x 0.82   still too heavy   <- despite arithmetic predicting otherwise
                Regular x 0.95   weight acceptable, too wide
-               Regular x 0.91   <- here
+               Regular x 0.91   stroke judged as good as this family gets
+               Regular x 0.88   <- here, 3% narrower, accepting the stroke it costs
                Regular x 0.87   clearly light
 
              Medium is out at ANY width, and the reason is worth keeping: textScaleX scales
@@ -181,7 +182,7 @@
             android:fontFamily="sans-serif"
             android:textFontWeight="300"
             android:textStyle="normal"
-            android:textScaleX="0.91"
+            android:textScaleX="0.88"
             android:textSize="28sp"
             android:text="--" />
 
