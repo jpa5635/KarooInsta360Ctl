@@ -121,15 +121,25 @@
 
              If Regular still reads heavy, 200 gives Light.
 
-             (2026-09-11, later) textFontWeight on the VALUE is back to 400, while the
-             label and percentages stay at 300. That is not a reversal of the weight fix
-             below — it is that fix interacting with textScaleX. 400 was rejected at full
-             width because IBM Plex Medium was visibly thicker than Karoo's fields; the
-             value is now condensed to 0.90, which thins every stem by 10%, and 0.90 x
-             Medium lands about where Regular sits at full width. Weight 300 there gave
-             0.90 x Regular, i.e. 10% thinner than the stock fields, which is what read as
-             slightly-less-bold. Do not "fix" this back to 300 without also returning
-             textScaleX to 1.0.
+             (2026-09-11, settled) weight 300 with textScaleX 0.95.
+
+             The search is bracketed, so don't repeat it. Three combinations were tried on
+             the device against a stock field: 1.00 x Regular was correct weight but ~10%
+             too wide; 0.90 x Regular was the right width but read thin; 0.90 x Medium read
+             too bold. There is nothing between Regular and Medium to ask for —
+             textFontWeight snaps to the faces that exist on this device (100/200/300/400/
+             700/900 as mapped below), so 350 resolves to one of its neighbours.
+
+             That leaves textScaleX as the only continuous control, and it moves width and
+             stroke by the same factor, so the two cannot be set independently with this
+             family. 0.95 takes half the thinness of 0.90 and gives back half the width —
+             the midpoint of the two nearest acceptable options.
+
+             The one way to have both is a genuinely condensed face, which narrows the
+             glyph by design while keeping the stem. This device carries
+             "ibm-plex-sans-condensed", but it ships at a single heavy weight (600), which
+             is likely to overshoot in the direction we just rejected. Worth an experiment,
+             not worth assuming.
 
              (2026-09-11) textScaleX: 0.92 -> 1.0 -> 0.90. The earlier note that it
              condenses "without touching the stroke" is wrong — the transform applies to the
@@ -155,9 +165,9 @@
             android:includeFontPadding="false"
             android:maxLines="1"
             android:fontFamily="sans-serif"
-            android:textFontWeight="400"
+            android:textFontWeight="300"
             android:textStyle="normal"
-            android:textScaleX="0.90"
+            android:textScaleX="0.95"
             android:textSize="28sp"
             android:text="--" />
 
