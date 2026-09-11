@@ -260,11 +260,16 @@ class RecordingDistanceDataType(
          * the value TextView reserving a descender that digits don't have — shrinking the
          * text only made the number smaller while leaving the gap exactly where it was.
          *
-         * Note that nothing here measures the cell. The size is derived from Karoo's
-         * figure, then the value row centres whatever it gets in the leftover height. If
-         * digits ever clip on a short cell, lower this before touching anything else.
+         * 1.0 -> 1.08 (2026-09-11): at 1.0 the digits still measured slightly shorter than
+         * the stock fields beside them. Nothing here measures the cell — the size comes
+         * from Karoo's figure and the row then centres whatever it gets in the leftover
+         * height — so 1.0 only matches in theory, and going past it is legitimate as long
+         * as it fits. It does: at 1.0 there was visible slack above and below the digits.
+         *
+         * This is the dial that clips first. If the tops or bottoms of digits are ever cut
+         * off on a short cell, lower this and change nothing else.
          */
-        private const val VALUE_SIZE_RATIO = 1.0f
+        private const val VALUE_SIZE_RATIO = 1.08f
         private const val MIN_LABEL_SP = 10f
 
         /**

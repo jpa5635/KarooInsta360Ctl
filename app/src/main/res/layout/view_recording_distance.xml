@@ -121,6 +121,16 @@
 
              If Regular still reads heavy, 200 gives Light.
 
+             (2026-09-11, later) textFontWeight on the VALUE is back to 400, while the
+             label and percentages stay at 300. That is not a reversal of the weight fix
+             below — it is that fix interacting with textScaleX. 400 was rejected at full
+             width because IBM Plex Medium was visibly thicker than Karoo's fields; the
+             value is now condensed to 0.90, which thins every stem by 10%, and 0.90 x
+             Medium lands about where Regular sits at full width. Weight 300 there gave
+             0.90 x Regular, i.e. 10% thinner than the stock fields, which is what read as
+             slightly-less-bold. Do not "fix" this back to 300 without also returning
+             textScaleX to 1.0.
+
              (2026-09-11) textScaleX: 0.92 -> 1.0 -> 0.90. The earlier note that it
              condenses "without touching the stroke" is wrong — the transform applies to the
              rendered glyph, so a vertical stem narrows by exactly the same factor. That is
@@ -145,7 +155,7 @@
             android:includeFontPadding="false"
             android:maxLines="1"
             android:fontFamily="sans-serif"
-            android:textFontWeight="300"
+            android:textFontWeight="400"
             android:textStyle="normal"
             android:textScaleX="0.90"
             android:textSize="28sp"
