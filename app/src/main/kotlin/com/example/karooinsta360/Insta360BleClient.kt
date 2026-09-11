@@ -108,6 +108,14 @@ class Insta360BleClient(
          */
         const val NOTIFY_CODE_FLOOR = 0x2000
 
+        /**
+         * How close together two byte-identical frames must be to count as one delivery
+         * duplicated across characteristics rather than two real events. The observed
+         * duplicates land 1-13ms apart; 200ms is far enough beyond that to be safe while
+         * staying well under any interval at which the camera repeats real information.
+         */
+        private const val DUPLICATE_WINDOW_MS = 200L
+
         /** Sequence numbers wrap at 254, so this only has to outlive a few round trips. */
         private const val MAX_PENDING_REQUESTS = 32
 
@@ -130,6 +138,16 @@ class Insta360BleClient(
     private var writeChar: BluetoothGattCharacteristic? = null
     private var deviceAddress: String = ""
     private val seq = AtomicInteger(1)
+
+    /**
+     * Last frame seen, for the duplicate filter in [handleIncoming]. Guarded by [dupeLock]
+     * because GATT callbacks arrive on more than one binder thread — the duplicates
+     * themselves were observed landing on different threads a millisecond or two apart.
+     */
+    private val dupeLock = Any()
+    private var lastFrameHash: Int? = null
+    private var lastFrameSource: String? = null
+    private var lastFrameAt: Long = 0L
 
     // Reassembly buffer for fragmented responses (Header16 supports multi-fragment payloads).
     private var reassemblyBuffer: ByteArray? = null
@@ -584,7 +602,49 @@ class Insta360BleClient(
         fun toByteArray(): ByteArray = out.toByteArray()
     }
 
+    /**
+     * True when this frame has already been handled, arriving a second time on a different
+     * characteristic.
+     *
+     * We subscribe to every characteristic that advertises NOTIFY (see the subscription
+     * code above) because which one carries capture status on a given model is exactly what
+     * isn't documented. The cost is that the camera pushes some frames on more than one of
+     * them, and every one was being processed twice — visible in logcat as each
+     * notification logged twice, a millisecond or two apart, from different threads.
+     *
+     * Mostly that was wasted work, since the handlers are idempotent. Not entirely, though:
+     * a duplicate *fragment* of a multi-fragment response was being appended to
+     * [reassemblyBuffer] a second time, silently corrupting the reassembled payload. So
+     * this filter runs before anything else touches the frame.
+     *
+     * Matching is on exact content within [DUPLICATE_WINDOW_MS]. Frames that genuinely
+     * repeat identical content carry a sequence number that differs (responses) or say
+     * nothing new (a status push repeating the state we just recorded), so dropping a
+     * byte-identical repeat inside a fifth of a second costs nothing either way.
+     */
+    private fun isDuplicateFrame(data: ByteArray, sourceUuid: String): Boolean {
+        val hash = data.contentHashCode()
+        val now = System.currentTimeMillis()
+        synchronized(dupeLock) {
+            val elapsed = now - lastFrameAt
+            if (hash == lastFrameHash && elapsed < DUPLICATE_WINDOW_MS) {
+                Log.d(
+                    TAG,
+                    "Duplicate frame from $sourceUuid (already handled from $lastFrameSource " +
+                        "${elapsed}ms ago) — ignoring",
+                )
+                return true
+            }
+            lastFrameHash = hash
+            lastFrameSource = sourceUuid
+            lastFrameAt = now
+        }
+        return false
+    }
+
     private fun handleIncoming(data: ByteArray, sourceUuid: String = CHAR_BE82_NOTIFY.toString()) {
+        if (isDuplicateFrame(data, sourceUuid)) return
+
         if (data.size < 16) {
             // Confirmed benign: the camera sends short (7-byte) periodic
             // heartbeat/keepalive notifications on BE82 outside the normal
