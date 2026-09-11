@@ -249,9 +249,15 @@ half-width layouts are handled automatically from whichever cell you drop the fi
 ## Notifications
 
 **In-ride alerts** appear on every start and stop, and always state the reason — "HR
-trigger", "Power trigger", "Speed trigger", "Radar trigger", "Manually from Karoo field",
-"Manually from Karoo button", "On the camera". So when a camera starts itself mid-descent,
-you know which trigger did it rather than guessing.
+trigger", "Pwr trigger", "Speed trigger", "Radar trigger", "via Karoo field", "via Karoo
+button", "on cam". So when a camera starts itself mid-descent, you know which trigger
+did it rather than guessing.
+
+They're phrased to complete the alert's own heading rather than to stand alone — you read
+"Recording started" and then "via Karoo field". Kept terse on purpose: the line also
+carries the camera name and battery level, and longer wording was being truncated on the
+head unit — hence the abbreviations (cam, batt, config, Pwr). The full reason, with
+thresholds and measured values, is always in logcat.
 
 Heart rate and power are named individually here even though they share one latch
 internally, since "Effort trigger" left you guessing which of the two it meant. A stop

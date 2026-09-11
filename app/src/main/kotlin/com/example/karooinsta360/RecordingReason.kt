@@ -12,9 +12,17 @@ package com.example.karooinsta360
  * want in a log and exactly what you don't want on a bike computer at 40kph.
  *
  * So this carries both. [logText] is the same detail as before, unchanged, and still what
- * goes to logcat. [alertText] is the short rider-facing version — "Speed trigger",
- * "Started manually from Karoo" — that the alert shows. One value, two audiences, no risk
- * of the two drifting apart because they're derived from the same construction site.
+ * goes to logcat. [alertText] is the short rider-facing version — "Speed trigger", "via
+ * Karoo field" — that the alert shows. One value, two audiences, no risk of the two
+ * drifting apart because they're derived from the same construction site.
+ *
+ * **Shortened (2026-09-11)** — alerts were being truncated on the head unit. The line they
+ * appear in is "<camera> <battery%> · <alertText>", and adding the battery level pushed it
+ * over. These read as sentence fragments completing the alert's own title ("Recording
+ * started" · "via Karoo field") rather than as standalone sentences, which is what lets
+ * them be this short, and common words are abbreviated the way a rider would read them at
+ * speed — cam, batt, config, Pwr. Nothing was lost: every word removed is still in
+ * [logText], which is what logcat gets.
  */
 sealed class RecordingReason {
 
@@ -33,9 +41,9 @@ sealed class RecordingReason {
 
         override val alertText: String
             get() = when (source) {
-                Source.KAROO_FIELD -> "Manually from Karoo field"
-                Source.BONUS_ACTION -> "Manually from Karoo button"
-                Source.CONFIG_SCREEN -> "Manually from Configure screen"
+                Source.KAROO_FIELD -> "via Karoo field"
+                Source.BONUS_ACTION -> "via Karoo button"
+                Source.CONFIG_SCREEN -> "via Config screen"
             }
 
         override val logText: String
@@ -64,14 +72,14 @@ sealed class RecordingReason {
                 // rather than "Trigger released", which named nothing and stated the
                 // obvious on a "Recording stopped" alert.
                 "none" -> ""
-                else -> latches.split("+").joinToString(" + ") { latchLabel(it) } + " trigger"
+                else -> latches.split("+").joinToString("+") { latchLabel(it) } + " trigger"
             }
 
         override val logText: String get() = "$latches ($detail)"
 
         private fun latchLabel(latch: String) = when (latch) {
             "hr" -> "HR"
-            "power" -> "Power"
+            "power" -> "Pwr"
             // Defensive fallback only — Insta360Extension always reports "hr"/"power"
             // individually now rather than the combined "effort" label.
             "effort" -> "Effort"
@@ -88,7 +96,7 @@ sealed class RecordingReason {
      * dropped out, which is actionable mid-ride in a way an ordinary threshold stop isn't.
      */
     data class DataSourceLost(val detail: String) : RecordingReason() {
-        override val alertText: String get() = "Sensor lost — $detail"
+        override val alertText: String get() = "lost $detail"
         override val logText: String get() = "data source lost — $detail"
     }
 
@@ -101,7 +109,7 @@ sealed class RecordingReason {
         // Deliberately neutral about direction: this same value describes a camera-side
         // start and a camera-side stop, and the alert already says which it was in its
         // title. "Started on the camera" would read as a lie on a stop alert.
-        override val alertText: String get() = "On the camera"
+        override val alertText: String get() = "on cam"
         override val logText: String get() = "camera-side action (BLE notification)"
     }
 
@@ -111,10 +119,10 @@ sealed class RecordingReason {
 
         override val alertText: String
             get() = when (fault) {
-                Fault.STORAGE_FULL -> "Camera stopped — card full"
-                Fault.BATTERY_LOW -> "Camera stopped — battery low"
-                Fault.SHUTDOWN -> "Camera shut down"
-                Fault.UNKNOWN -> "Camera stopped on its own"
+                Fault.STORAGE_FULL -> "card full"
+                Fault.BATTERY_LOW -> "batt low"
+                Fault.SHUTDOWN -> "cam shut down"
+                Fault.UNKNOWN -> "cam stopped itself"
             }
 
         override val logText: String get() = "camera fault: ${fault.name}"
