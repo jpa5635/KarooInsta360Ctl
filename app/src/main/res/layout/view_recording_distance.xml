@@ -132,14 +132,19 @@
              in units of Regular's stem:
 
                Medium  x 0.90  = 1.04   too bold
-               Medium  x 0.87  = 1.00   <- here
-               Regular x 0.95  = 0.95   slightly light
+               Medium  x 0.87  = 1.00   too heavy
+               Medium  x 0.82  = 0.94   <- here, midpoint of the two judged extremes
+               Regular x 0.95  = 0.95   acceptable weight, too wide
                Regular x 0.87  = 0.87   clearly light
 
-             So weight and width are not independent, but they are not locked together
-             either: pick the width with textScaleX, then pick whichever face lands the
-             product where you want it. Changing one without reconsidering the other is
-             what made this take several rounds.
+             The catch, and the reason this took several rounds: stem thickness and glyph
+             width are BOTH proportional to textSize x textScaleX, so their ratio is set by
+             the face alone and nothing else on this TextView can separate them. Wanting a
+             lighter stroke at the same width is therefore not a thing that can be asked
+             for here — the only faces available are Regular and Medium, roughly 15% apart,
+             with nothing between. Lighter at a given width means Regular; the same stem
+             with Medium means going narrower. 0.82 takes the narrower route because every
+             round of feedback on this field has wanted less width.
 
              Note textFontWeight snaps to the faces that exist on this device
              (100/200/300/400/700/900 as mapped below) — an intermediate value like 350
@@ -172,7 +177,7 @@
             android:fontFamily="sans-serif"
             android:textFontWeight="400"
             android:textStyle="normal"
-            android:textScaleX="0.87"
+            android:textScaleX="0.82"
             android:textSize="28sp"
             android:text="--" />
 
