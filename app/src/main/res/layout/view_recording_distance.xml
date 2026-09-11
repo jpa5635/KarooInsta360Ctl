@@ -121,11 +121,21 @@
                </family>
                <alias name="ibm-plex-sans-condensed" to="ibm-sans-cond" />
 
-             So the condensed face IS selectable, and textFontWeight must be 600 to match
-             what that family declares. Note the file is *Medium* despite the 600 label —
-             an earlier revision of this comment assumed 600 meant something SemiBold-heavy
-             and passed the family over on that basis. It is one step above Regular, which
-             is where the whole search was trying to land.
+             That face IS selectable as android:fontFamily="ibm-plex-sans-condensed" at
+             textFontWeight 600, and 0.1.54 did exactly that. It read correct in shape but
+             heavier than the stock fields, and no weight request can fix that: the family
+             contains exactly one file, so every weight resolves to Medium.
+
+             Hence the bundled Regular cut of the same family. It is the identical design
+             one step lighter, and the metrics confirm nothing else moves — digit advance
+             540/1000 and cap height 698/1000 in both, so swapping them changes stroke
+             weight while leaving width and height untouched. IBM Plex is SIL OFL
+             (licences/OFL-IBMPlex.txt) and one face is about 140KB.
+
+             If a bundled @font ever fails to resolve inside RemoteViews (these layouts are
+             inflated in Karoo's process, not ours), the fallback is
+             android:fontFamily="ibm-plex-sans-condensed" with textFontWeight="600" — the
+             installed face, correct shape, slightly heavy.
 
              Do not reintroduce textScaleX here. It scales the rendered glyph horizontally:
              stems thin by the same factor the width drops while horizontal strokes keep
@@ -148,8 +158,7 @@
             android:gravity="center"
             android:includeFontPadding="false"
             android:maxLines="1"
-            android:fontFamily="ibm-plex-sans-condensed"
-            android:textFontWeight="600"
+            android:fontFamily="@font/ibm_plex_sans_condensed_regular"
             android:textStyle="normal"
             android:textSize="28sp"
             android:text="--" />

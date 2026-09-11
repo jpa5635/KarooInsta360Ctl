@@ -16,8 +16,8 @@ android {
         // versionCode just needs to keep increasing by 1 each build — it doesn't need to
         // encode the versionName scheme. versionName itself is 0.1.<build number> rather
         // than 0.<build number> going forward, per request.
-        versionCode = 54
-        versionName = "0.1.54"
+        versionCode = 55
+        versionName = "0.1.55"
     }
 
     // Added (2026-09-07). Without this, every build signs with whatever auto-generated

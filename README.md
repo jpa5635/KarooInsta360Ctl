@@ -275,6 +275,13 @@ They cover every start and stop from any source and apply to all saved cameras. 
 
 ---
 
+## Fonts
+
+The Distance field's numerals use IBM Plex Sans Condensed — the same condensed design the
+Karoo already carries, in the Regular cut rather than the Medium one installed on the
+device, so the weight matches the stock fields. It's bundled under the SIL Open Font
+License; see `licences/OFL-IBMPlex.txt`.
+
 ## Building
 
 karoo-ext is published to GitHub Packages, so a GitHub personal access token with
