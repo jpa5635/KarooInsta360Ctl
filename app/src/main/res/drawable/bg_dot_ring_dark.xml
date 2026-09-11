@@ -1,8 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<!-- Sits behind a tinted recording dot and shows through the ImageView's 1dp padding as a
-     ring, keeping a mid-tone band colour (e.g. battery_medium) readable against the dark
-     field background. See ic_rec_dot_solid. -->
-<shape xmlns:android="http://schemas.android.com/apk/res/android"
-    android:shape="oval">
-    <solid android:color="@color/field_dark_text" />
-</shape>

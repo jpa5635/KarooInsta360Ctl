@@ -5,17 +5,20 @@
      so on a quarter-height cell the label takes its space off the top and the value gets
      what's left, instead of overlapping the digits.
 
-     (2026-09-10) The top row now carries per-camera battery percentages on the left with
-     the field label pushed to the right edge (layout_weight on the label, gravity=end).
-     Each camera gets a recording dot immediately left of its percentage, tinted to that
-     camera's battery band — replacing the single corner-pinned dot this field used to
-     have, which no longer had a free corner to live in and couldn't say *which* camera was
-     rolling.
+     (2026-09-10) The top row carries per-camera battery percentages on the left with the
+     field label pushed to the right edge (layout_weight on the label, gravity=end).
 
-     Three camera slots are declared, matching the Recording Control field's stripe cap.
-     Slots for cameras that aren't connected are set GONE and collapse completely; a
-     connected camera that isn't recording keeps its dot INVISIBLE rather than GONE, so
-     starting a recording doesn't shove its percentage sideways. -->
+     (2026-09-11) There is no recording dot here any more. It began as a single
+     corner-pinned dot, then became one tinted dot per camera, then a dot stacked under
+     each percentage — and at every size it cost horizontal or vertical room this cell does
+     not have, which is what was truncating the label. The percentage itself now blinks
+     while that camera is recording, which says the same thing in no space at all. Battery
+     colour lives on the Recording Control tile; this field is numbers only.
+
+     Three camera slots are declared, matching that tile's stripe cap. Slots for cameras
+     that aren't connected are GONE and collapse completely. Blinking toggles between
+     VISIBLE and INVISIBLE, never GONE, so a recording camera's neighbours don't shuffle
+     sideways twice a second. -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/recordingDistanceRoot"
     android:layout_width="match_parent"
@@ -34,104 +37,47 @@
             android:orientation="horizontal"
             android:gravity="center_vertical">
 
-            <LinearLayout
-                android:id="@+id/batterySlot1"
+            <TextView
+                android:id="@+id/batteryPct1"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginEnd="6dp"
-                android:orientation="vertical"
-                android:gravity="center_horizontal"
-                android:visibility="gone">
+                android:includeFontPadding="false"
+                android:maxLines="1"
+                android:fontFamily="sans-serif"
+                android:textFontWeight="300"
+                android:textScaleX="0.8"
+                android:textSize="11sp"
+                android:visibility="gone"
+                android:text="--%" />
 
-                <TextView
-                    android:id="@+id/batteryPct1"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:includeFontPadding="false"
-                    android:maxLines="1"
-                    android:fontFamily="sans-serif"
-                    android:textFontWeight="300"
-                    android:textScaleX="0.8"
-                    android:textSize="11sp"
-                    android:text="--%" />
-
-                <ImageView
-                    android:id="@+id/batteryDot1"
-                    android:layout_width="8dp"
-                    android:layout_height="8dp"
-                    android:layout_marginTop="1dp"
-                    android:padding="1dp"
-                    android:background="@drawable/bg_dot_ring_dark"
-                    android:contentDescription="@string/recording_dot_description"
-                    android:src="@drawable/ic_rec_dot_solid" />
-
-            </LinearLayout>
-
-            <LinearLayout
-                android:id="@+id/batterySlot2"
+            <TextView
+                android:id="@+id/batteryPct2"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginEnd="6dp"
-                android:orientation="vertical"
-                android:gravity="center_horizontal"
-                android:visibility="gone">
+                android:includeFontPadding="false"
+                android:maxLines="1"
+                android:fontFamily="sans-serif"
+                android:textFontWeight="300"
+                android:textScaleX="0.8"
+                android:textSize="11sp"
+                android:visibility="gone"
+                android:text="--%" />
 
-                <TextView
-                    android:id="@+id/batteryPct2"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:includeFontPadding="false"
-                    android:maxLines="1"
-                    android:fontFamily="sans-serif"
-                    android:textFontWeight="300"
-                    android:textScaleX="0.8"
-                    android:textSize="11sp"
-                    android:text="--%" />
-
-                <ImageView
-                    android:id="@+id/batteryDot2"
-                    android:layout_width="8dp"
-                    android:layout_height="8dp"
-                    android:layout_marginTop="1dp"
-                    android:padding="1dp"
-                    android:background="@drawable/bg_dot_ring_dark"
-                    android:contentDescription="@string/recording_dot_description"
-                    android:src="@drawable/ic_rec_dot_solid" />
-
-            </LinearLayout>
-
-            <LinearLayout
-                android:id="@+id/batterySlot3"
+            <TextView
+                android:id="@+id/batteryPct3"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginEnd="6dp"
-                android:orientation="vertical"
-                android:gravity="center_horizontal"
-                android:visibility="gone">
-
-                <TextView
-                    android:id="@+id/batteryPct3"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:includeFontPadding="false"
-                    android:maxLines="1"
-                    android:fontFamily="sans-serif"
-                    android:textFontWeight="300"
-                    android:textScaleX="0.8"
-                    android:textSize="11sp"
-                    android:text="--%" />
-
-                <ImageView
-                    android:id="@+id/batteryDot3"
-                    android:layout_width="8dp"
-                    android:layout_height="8dp"
-                    android:layout_marginTop="1dp"
-                    android:padding="1dp"
-                    android:background="@drawable/bg_dot_ring_dark"
-                    android:contentDescription="@string/recording_dot_description"
-                    android:src="@drawable/ic_rec_dot_solid" />
-
-            </LinearLayout>
+                android:includeFontPadding="false"
+                android:maxLines="1"
+                android:fontFamily="sans-serif"
+                android:textFontWeight="300"
+                android:textScaleX="0.8"
+                android:textSize="11sp"
+                android:visibility="gone"
+                android:text="--%" />
 
             <!-- Weight here is what right-justifies the label: it absorbs whatever the
                  percentages don't use, and gravity=end pins the text to the far edge. -->
@@ -181,7 +127,7 @@
             android:fontFamily="sans-serif"
             android:textFontWeight="300"
             android:textStyle="normal"
-            android:textScaleX="0.74"
+            android:textScaleX="0.92"
             android:textSize="28sp"
             android:text="--" />
 

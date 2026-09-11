@@ -145,13 +145,15 @@ class RecordingDistanceDataType(
 
         var renderJob: Job? = null
         renderJob = CoroutineScope(Dispatchers.Default).launch {
-            var dotOn = true
+            var blinkOn = true
             while (isActive) {
                 val dark = AppSettings.isFieldThemeDark(context)
                 val textColor = if (dark) R.color.field_dark_text else R.color.field_light_text
-                val ringDrawable =
-                    if (dark) R.drawable.bg_dot_ring_dark else R.drawable.bg_dot_ring_light
-
+                // Two reds rather than one: #FF2D2D is bright enough to read on the dark
+                // field background but washes out on the light one, where the deeper
+                // #C1121F holds up. Same red the Recording Control tile fills with.
+                val recordingColor =
+                    if (dark) R.color.recording_dot else R.color.field_recording_bg
                 // Only connected cameras get a slot. A camera that isn't there shows
                 // nothing at all rather than a placeholder — with none connected this
                 // renders as a plain right-justified DISTANCE label, i.e. as an ordinary
@@ -180,10 +182,9 @@ class RecordingDistanceDataType(
                         val preview = config.preview && index == 0 && cameras.isEmpty()
 
                         if (camera == null && !preview) {
-                            setViewVisibility(slot.containerId, View.GONE)
+                            setViewVisibility(slot.percentId, View.GONE)
                             return@forEachIndexed
                         }
-                        setViewVisibility(slot.containerId, View.VISIBLE)
 
                         val percent = camera?.batteryPercent
                         // "--%" rather than a collapsed slot for a camera that is present
@@ -191,26 +192,32 @@ class RecordingDistanceDataType(
                         // would make the number pop in later and shove its neighbours over.
                         setTextViewText(slot.percentId, if (percent == null) "--%" else "$percent%")
                         setTextViewTextSize(slot.percentId, TypedValue.COMPLEX_UNIT_SP, labelTextSizeSp)
-                        setTextColor(slot.percentId, ContextCompat.getColor(context, textColor))
 
-                        // The dot carries two facts at once: blinking means this camera is
-                        // recording, and its hue is that camera's battery band. Tinted
-                        // rather than swapped per band — the drawable is a plain white
-                        // circle and setColorFilter recolours it.
-                        val bandColor = camera?.batteryBand?.fillColor ?: R.color.recording_dot
-                        setInt(slot.dotId, "setBackgroundResource", ringDrawable)
-                        setInt(slot.dotId, "setColorFilter", ContextCompat.getColor(context, bandColor))
-                        // INVISIBLE rather than GONE for a camera that isn't recording: the
-                        // dot now sits under its percentage, so collapsing it would change
-                        // the row's height and shift the distance value below it.
-                        val lit = (camera?.recording == true && dotOn) || preview
-                        setViewVisibility(slot.dotId, if (lit) View.VISIBLE else View.INVISIBLE)
+                        // Red while this camera is recording, the ordinary field text
+                        // colour otherwise. Colour carries the state on its own, so a
+                        // camera that's rolling still reads as rolling in the half of the
+                        // blink cycle where the number is on screen.
+                        val recording = camera?.recording == true || preview
+                        setTextColor(
+                            slot.percentId,
+                            ContextCompat.getColor(context, if (recording) recordingColor else textColor),
+                        )
+
+                        // The percentage itself is the recording indicator: it blinks while
+                        // that camera is rolling. INVISIBLE rather than GONE on the dark
+                        // half of the blink, so the slot keeps its width and the cameras
+                        // beside it don't shuffle sideways twice a second.
+                        val blankThisFrame = recording && !blinkOn && !config.preview
+                        setViewVisibility(
+                            slot.percentId,
+                            if (blankThisFrame) View.INVISIBLE else View.VISIBLE,
+                        )
                     }
                 }
                 emitter.updateView(views)
 
                 delay(BLINK_PERIOD_MS)
-                dotOn = !dotOn
+                blinkOn = !blinkOn
             }
         }
 
@@ -253,16 +260,12 @@ class RecordingDistanceDataType(
          * than allowed to squeeze the label into an ellipsis.
          */
         private val CAMERA_SLOTS = listOf(
-            CameraSlot(R.id.batterySlot1, R.id.batteryDot1, R.id.batteryPct1),
-            CameraSlot(R.id.batterySlot2, R.id.batteryDot2, R.id.batteryPct2),
-            CameraSlot(R.id.batterySlot3, R.id.batteryDot3, R.id.batteryPct3),
+            CameraSlot(R.id.batteryPct1),
+            CameraSlot(R.id.batteryPct2),
+            CameraSlot(R.id.batteryPct3),
         )
     }
 
-    /**
-     * One camera's column in the top row: the percentage with its recording dot stacked
-     * underneath. Stacked rather than side by side so three cameras plus the label fit
-     * across a half-width cell without the label being truncated.
-     */
-    private data class CameraSlot(val containerId: Int, val dotId: Int, val percentId: Int)
+    /** One camera's percentage in the top row. It blinks while that camera is recording. */
+    private data class CameraSlot(val percentId: Int)
 }

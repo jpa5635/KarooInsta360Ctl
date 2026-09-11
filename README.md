@@ -199,10 +199,13 @@ that aren't recording get no stripe, so a coloured tile still means "something i
 shown; a camera that drops out mid-ride loses its stripe and the rest expand to fill.
 
 **Distance** — ride distance, with each connected camera's battery percentage along the top
-left and the field label pushed to the right. Each camera gets a dot immediately left of
-its percentage, flashing while *that* camera is recording and coloured by its battery
-level. Use it in place of your usual Distance field and the recording indicator costs you
-no page space at all.
+left and the field label pushed to the right. A percentage turns red and blinks while
+*that* camera is recording, so you can see which cameras are rolling and how much they have
+left without spending a cell on either. Use it in place of your usual Distance field and the
+recording indicator costs you no page space at all.
+
+The red only ever means recording — battery level shows as a number here, never as a colour.
+Battery colour lives on the Recording Control tile.
 
 Cameras that aren't connected show nothing at all — with none connected the field is just a
 plain distance field. A camera that's connected but hasn't reported its level yet shows
