@@ -137,7 +137,13 @@
              android:fontFamily="ibm-plex-sans-condensed" with textFontWeight="600" — the
              installed face, correct shape, slightly heavy.
 
-             Do not reintroduce textScaleX here. It scales the rendered glyph horizontally:
+             textScaleX is back at 0.9 (0.1.58) on top of the condensed face, purely to take
+             another 10% of width off by request. It still carries the cost described below
+             — 10% thinner stems — but starting from a real condensed design rather than a
+             squashed normal one, so the shape stays right.
+
+             The note it replaces said not to reintroduce it at all. That still holds as the
+             default: it scales the rendered glyph horizontally:
              stems thin by the same factor the width drops while horizontal strokes keep
              full thickness, so a squashed normal face is narrow-and-light, never
              narrow-with-full-stroke. Roughly a dozen settings were judged on the device
@@ -159,6 +165,7 @@
             android:includeFontPadding="false"
             android:maxLines="1"
             android:fontFamily="@font/ibm_plex_sans_condensed_regular"
+            android:textScaleX="0.9"
             android:textStyle="normal"
             android:textSize="28sp"
             android:text="--" />
