@@ -246,8 +246,18 @@ class RecordingDistanceDataType(
         private const val METERS_PER_MILE = 1609.344
         private const val LABEL_SIZE_RATIO = 0.30f
 
-        /** See where this is used: compensates for the label row our layout adds. */
-        private const val VALUE_SIZE_RATIO = 0.88f
+        /**
+         * Compensates for the label row our layout adds, which Karoo's own textSize figure
+         * doesn't account for.
+         *
+         * Raised from 0.88 (2026-09-11): the value was noticeably shorter than neighbouring
+         * stock fields. 0.88 was set when the top row also held a recording dot and, later,
+         * a dot stacked under each percentage; that row is a single line of text now, so
+         * most of the headroom it was reserving is no longer needed. If the bottoms of the
+         * digits ever clip on a short cell, this is the dial — lower it before touching
+         * anything else.
+         */
+        private const val VALUE_SIZE_RATIO = 0.96f
         private const val MIN_LABEL_SP = 10f
 
         /**

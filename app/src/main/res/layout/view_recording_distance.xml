@@ -23,7 +23,10 @@
     android:id="@+id/recordingDistanceRoot"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:padding="4dp">
+    android:paddingStart="4dp"
+    android:paddingEnd="4dp"
+    android:paddingTop="1dp"
+    android:paddingBottom="1dp">
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -111,11 +114,12 @@
 
              If Regular still reads heavy, 200 gives Light.
 
-             Width is a separate axis from weight: textScaleX condenses the glyphs
-             horizontally without touching the stroke. Used here in preference to the one
-             genuinely condensed family on the device, "ibm-plex-sans-condensed", because
-             that ships only at weight 600 — switching to it would undo the weight fix
-             above and bring the thickness straight back. -->
+             (2026-09-11) textScaleX is back to 1.0 here. The earlier note that it
+             condenses "without touching the stroke" is wrong: the transform is applied to
+             the rendered glyph, so a vertical stem is narrowed by exactly the same factor
+             as the glyph. At 0.92 every stroke was 8% thinner than Karoo's own fields,
+             which read as slightly-less-bold even though the weight matched. The value has
+             a full-width row to itself, so there is nothing to condense for. -->
         <TextView
             android:id="@+id/distanceValue"
             android:layout_width="match_parent"
@@ -127,7 +131,7 @@
             android:fontFamily="sans-serif"
             android:textFontWeight="300"
             android:textStyle="normal"
-            android:textScaleX="0.92"
+            android:textScaleX="1.0"
             android:textSize="28sp"
             android:text="--" />
 
