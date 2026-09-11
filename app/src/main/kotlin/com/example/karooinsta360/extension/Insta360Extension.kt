@@ -417,6 +417,35 @@ class Insta360Extension : KarooExtension(EXTENSION_ID, "1.0") {
         }
     }
 
+    /**
+     * True when this camera's battery floor should suppress an automatic start.
+     *
+     * Deliberately narrow in three ways.
+     *
+     * It only blocks *starting*. A recording already running is left alone to end on its
+     * own latch, because cutting one off mid-descent to save battery gets the worst of
+     * both: a clip you can't use and a camera that spent the power making it anyway.
+     *
+     * Radar is exempt, which is why [radarWants] is passed in. Radar exists to catch a
+     * vehicle you may need evidence of, and anyone who set it up would rather it spend the
+     * last few percent than conserve them. If radar is part of what wants recording, this
+     * never blocks.
+     *
+     * An unknown level never blocks. The level is polled, so "unknown" means the camera
+     * hasn't answered yet or has gone quiet — and silently disabling a rider's triggers on
+     * the strength of a missing reading would be a far worse failure than recording at 6%.
+     */
+    private fun batteryFloorBlocks(
+        settings: ProfileStore.ProfileCameraSettings,
+        address: String,
+        radarWants: Boolean,
+    ): Boolean {
+        if (!settings.batteryFloorEnabled) return false
+        if (radarWants) return false
+        val percent = Insta360ConnectionManager.battery(address)?.percent ?: return false
+        return percent <= settings.batteryFloorPercent
+    }
+
     private fun runCameraMonitor(camera: CameraStore.CameraConfig, settings: ProfileStore.ProfileCameraSettings): Job {
         return CoroutineScope(Dispatchers.Default).launch {
             var hrAboveSince: Long? = null
@@ -879,6 +908,20 @@ class Insta360Extension : KarooExtension(EXTENSION_ID, "1.0") {
                             TAG,
                             "[$label] wanting=$wantingLatches (last: $lastLatchEvent) actual=$actual — " +
                                 "automation paused for this camera, no action taken",
+                        )
+                    }
+                } else if (desired && !actual && batteryFloorBlocks(settings, address, radarWantsRecording)) {
+                    // Low battery: automation stands down so what's left is there for the
+                    // starts you make deliberately. Radar is exempt — see
+                    // [batteryFloorBlocks] — so a latch set including radar still starts.
+                    val level = Insta360ConnectionManager.battery(address)?.percent
+                    outcome = "start-suppressed|battery=$level"
+                    if (outcome != lastCombineOutcome) {
+                        Log.i(
+                            TAG,
+                            "[$label] $wantingLatches wants recording ($lastLatchEvent) but battery is " +
+                                "$level% (floor ${settings.batteryFloorPercent}%) — start IGNORED, " +
+                                "no action taken",
                         )
                     }
                 } else if (desired && !actual) {

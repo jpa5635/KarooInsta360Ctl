@@ -55,6 +55,22 @@ object ProfileStore {
         val speedUnit: CameraStore.SpeedUnit,
         val radar: CameraStore.MetricTrigger,
         val radarUnit: CameraStore.DistanceUnit,
+        /**
+         * **Added (2026-09-11)** — when true, the heart rate, power and speed triggers
+         * stop *starting* recordings once this camera's battery falls to
+         * [batteryFloorPercent] or below, so a nearly flat camera saves what's left for
+         * the moments you choose deliberately.
+         *
+         * Radar is exempt on purpose. It's the one trigger whose job is to catch a vehicle
+         * you may need evidence of, and a rider who set it up would rather it spend the
+         * last 8% than conserve it.
+         *
+         * Manual starts are never blocked either — the tile, the controller button and the
+         * camera's own shutter all still work at any level. This only silences automation.
+         */
+        val batteryFloorEnabled: Boolean = false,
+        /** Percentage at or below which the triggers above are ignored. */
+        val batteryFloorPercent: Int = DEFAULT_BATTERY_FLOOR_PERCENT,
     ) {
         companion object {
             /**
@@ -72,7 +88,15 @@ object ProfileStore {
                 speedUnit = CameraStore.SpeedUnit.MPH,
                 radar = CameraStore.MetricTrigger(startThreshold = 100f, stopThreshold = 100f, startSeconds = 0, stopSeconds = 15),
                 radarUnit = CameraStore.DistanceUnit.FEET,
+                batteryFloorEnabled = false,
+                batteryFloorPercent = DEFAULT_BATTERY_FLOOR_PERCENT,
             )
+
+            /**
+             * Low enough that it only bites when a camera genuinely can't finish the ride,
+             * rather than second-guessing a rider who started out at 40%.
+             */
+            const val DEFAULT_BATTERY_FLOOR_PERCENT = 10
         }
     }
 
@@ -268,6 +292,8 @@ object ProfileStore {
         put("speedUnit", s.speedUnit.name)
         put("radar", triggerToJson(s.radar))
         put("radarUnit", s.radarUnit.name)
+        put("batteryFloorEnabled", s.batteryFloorEnabled)
+        put("batteryFloorPercent", s.batteryFloorPercent)
     }
 
     private fun settingsFromJson(o: JSONObject) = ProfileCameraSettings(
@@ -278,6 +304,11 @@ object ProfileStore {
         speedUnit = runCatching { CameraStore.SpeedUnit.valueOf(o.optString("speedUnit")) }
             .getOrDefault(CameraStore.SpeedUnit.MPH),
         radar = triggerFromJson(o.optJSONObject("radar")),
+        // Absent in profiles written before 0.1.55; opt(...) with these defaults leaves
+        // an existing profile behaving exactly as it did rather than silently acquiring
+        // a floor nobody asked for.
+        batteryFloorEnabled = o.optBoolean("batteryFloorEnabled", false),
+        batteryFloorPercent = o.optInt("batteryFloorPercent", ProfileCameraSettings.DEFAULT_BATTERY_FLOOR_PERCENT),
         radarUnit = runCatching { CameraStore.DistanceUnit.valueOf(o.optString("radarUnit")) }
             .getOrDefault(CameraStore.DistanceUnit.FEET),
     )

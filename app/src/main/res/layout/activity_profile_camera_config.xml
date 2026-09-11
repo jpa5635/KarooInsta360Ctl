@@ -379,6 +379,39 @@
             android:inputType="number"
             android:layout_marginBottom="28dp" />
 
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Low battery"
+            android:textStyle="bold"
+            android:layout_marginBottom="4dp" />
+
+        <CheckBox
+            android:id="@+id/batteryFloorCheckbox"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Ignore HR, power and speed triggers on low battery" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textSize="12sp"
+            android:text="Once this camera reaches the level below, the heart rate, power and speed triggers stop starting recordings, so what's left is there for the ones you start yourself. Radar still triggers - it's there to catch a vehicle, and that's worth the last few percent. Tapping the tile, the controller button and the camera's own shutter all still work at any level, and a recording already running is never cut short. Has no effect until the camera reports its level."
+            android:layout_marginBottom="8dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Battery level (%)" />
+
+        <EditText
+            android:id="@+id/batteryFloorInput"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="e.g. 10"
+            android:inputType="number"
+            android:layout_marginBottom="28dp" />
+
         <Button
             android:id="@+id/saveProfileCameraConfigButton"
             android:layout_width="match_parent"

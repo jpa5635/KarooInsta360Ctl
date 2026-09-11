@@ -175,6 +175,23 @@ radar at any distance keeps it going — the recording ends only after radar rep
 tracked for the stop duration. That's deliberate: a car that has passed you is still worth
 recording until it's gone.
 
+#### Low battery
+
+Each camera can be told to stand its triggers down when it's nearly flat. Tick **Ignore HR,
+power and speed triggers on low battery** in that camera's trigger settings and set a level
+— 10% by default — and below it those three triggers stop starting recordings, saving what's
+left for the ones you start deliberately.
+
+Three deliberate exceptions:
+
+- **Radar still triggers.** It's there to catch a vehicle you may need evidence of, which is
+  worth the last few percent.
+- **Manual starts always work** — the tile, the controller button, the camera's own shutter.
+- **A recording already running is never cut short.** It ends on its own trigger as usual.
+
+It also does nothing until the camera has reported a level. An unknown battery never
+disables your triggers.
+
 ### Data source loss
 
 If a trigger's data source stops updating entirely — a dropped HR strap, a dead sensor,

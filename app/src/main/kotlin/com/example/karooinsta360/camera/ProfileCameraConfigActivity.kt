@@ -58,6 +58,9 @@ class ProfileCameraConfigActivity : AppCompatActivity() {
 
     // Radar has no separate stop threshold — see readRadarTrigger()/the layout's Radar
     // section for why (its stop condition is "no vehicle on radar," not a crossed value).
+    private lateinit var batteryFloorEnabled: CheckBox
+    private lateinit var batteryFloorPercent: EditText
+
     private lateinit var radarEnabled: CheckBox
     private lateinit var radarUnitGroup: RadioGroup
     private lateinit var radarStartThreshold: EditText
@@ -101,6 +104,9 @@ class ProfileCameraConfigActivity : AppCompatActivity() {
         radarStartSeconds = findViewById(R.id.radarStartSecondsInput)
         radarStopSeconds = findViewById(R.id.radarStopSecondsInput)
 
+        batteryFloorEnabled = findViewById(R.id.batteryFloorCheckbox)
+        batteryFloorPercent = findViewById(R.id.batteryFloorInput)
+
         saveButton = findViewById(R.id.saveProfileCameraConfigButton)
         saveButton.setOnClickListener { saveConfig() }
 
@@ -143,6 +149,9 @@ class ProfileCameraConfigActivity : AppCompatActivity() {
         radarStartThreshold.setText(formatFloat(settings.radar.startThreshold))
         radarStartSeconds.setText(settings.radar.startSeconds.toString())
         radarStopSeconds.setText(settings.radar.stopSeconds.toString())
+
+        batteryFloorEnabled.isChecked = settings.batteryFloorEnabled
+        batteryFloorPercent.setText(settings.batteryFloorPercent.toString())
     }
 
     private fun formatFloat(value: Float): String =
@@ -228,6 +237,18 @@ class ProfileCameraConfigActivity : AppCompatActivity() {
         val radar = readRadarTrigger(radarEnabled, radarStartThreshold, radarStartSeconds, radarStopSeconds)
             ?: return
 
+        // Validated even when the checkbox is off, so a nonsense value can't sit in the
+        // field waiting to take effect the moment someone ticks it.
+        val batteryFloor = batteryFloorPercent.text.toString().toIntOrNull()
+        if (batteryFloor == null || batteryFloor !in 1..99) {
+            Toast.makeText(
+                this,
+                "Low battery: level must be a whole number from 1 to 99",
+                Toast.LENGTH_LONG,
+            ).show()
+            return
+        }
+
         val powerSpikes = powerStopAllowedSpikes.text.toString().toIntOrNull()
         if (powerSpikes == null || powerSpikes !in 0..5) {
             Toast.makeText(this, "Power: allowed spikes must be a whole number from 0 to 5", Toast.LENGTH_LONG).show()
@@ -257,6 +278,8 @@ class ProfileCameraConfigActivity : AppCompatActivity() {
                 speedUnit = speedUnit,
                 radar = radar,
                 radarUnit = radarUnit,
+                batteryFloorEnabled = batteryFloorEnabled.isChecked,
+                batteryFloorPercent = batteryFloor,
             ),
         )
         Toast.makeText(
