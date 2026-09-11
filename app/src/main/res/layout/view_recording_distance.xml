@@ -137,8 +137,8 @@
              android:fontFamily="ibm-plex-sans-condensed" with textFontWeight="600" — the
              installed face, correct shape, slightly heavy.
 
-             textScaleX is back at 0.9 (0.1.58) on top of the condensed face, purely to take
-             another 10% of width off by request. It still carries the cost described below
+             textScaleX is back, at 0.9 then 0.83 (0.1.58, 0.1.59), on top of the condensed
+             face, purely to take width off by request. It still carries the cost described below
              — 10% thinner stems — but starting from a real condensed design rather than a
              squashed normal one, so the shape stays right.
 
@@ -165,7 +165,7 @@
             android:includeFontPadding="false"
             android:maxLines="1"
             android:fontFamily="@font/ibm_plex_sans_condensed_regular"
-            android:textScaleX="0.9"
+            android:textScaleX="0.83"
             android:textStyle="normal"
             android:textSize="28sp"
             android:text="--" />
