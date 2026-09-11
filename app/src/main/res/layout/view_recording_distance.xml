@@ -167,7 +167,7 @@
             android:fontFamily="sans-serif"
             android:textFontWeight="300"
             android:textStyle="normal"
-            android:textScaleX="0.92"
+            android:textScaleX="0.89"
             android:textSize="28sp"
             android:text="--" />
 
