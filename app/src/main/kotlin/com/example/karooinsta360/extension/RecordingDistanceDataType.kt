@@ -233,10 +233,27 @@ class RecordingDistanceDataType(
      * Karoo reports distance in meters. Two decimal places matches the stock field's
      * treatment closely enough to sit beside it without looking out of place.
      */
+    /**
+     * Two decimals below 100, one at or above — matching Karoo's own distance field.
+     *
+     * Not cosmetic. The value TextView is maxLines=1 with a fixed textSize and no
+     * ellipsize or autosizing, so a string that outgrows the cell is simply clipped at the
+     * edge. At a flat "%.2f" the text gains a character at 100 ("99.99" -> "100.00"), which
+     * on a half-width cell is enough to cut a digit off a long ride's distance — and it
+     * would happen at exactly the point in a ride where you'd least want to be recounting
+     * digits. Switching precision keeps it at five characters either side of the boundary.
+     *
+     * The cost is a digit of precision past 100, which is what Karoo itself decided was
+     * the right trade.
+     */
     private fun formatDistance(meters: Double?, imperial: Boolean): String {
         if (meters == null) return "--"
         val value = if (imperial) meters / METERS_PER_MILE else meters / 1000.0
-        return "%.2f".format(value)
+        // Guard on the *rounded* value, not the raw one: 99.999 formats as "100.00" under
+        // "%.2f", so testing the raw value would let exactly the string this avoids slip
+        // through in the last fraction of a mile before the boundary.
+        val roundsToHundred = "%.2f".format(value).length > 5
+        return if (roundsToHundred) "%.1f".format(value) else "%.2f".format(value)
     }
 
     companion object {
