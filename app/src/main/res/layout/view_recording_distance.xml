@@ -131,20 +131,24 @@
              range even though only two faces are usable. Measured against a stock field,
              in units of Regular's stem:
 
-               Medium  x 0.90  = 1.04   too bold
-               Medium  x 0.87  = 1.00   too heavy
-               Medium  x 0.82  = 0.94   <- here, midpoint of the two judged extremes
-               Regular x 0.95  = 0.95   acceptable weight, too wide
-               Regular x 0.87  = 0.87   clearly light
+               Medium  x 0.90   too bold
+               Medium  x 0.87   too heavy
+               Medium  x 0.82   still too heavy   <- despite arithmetic predicting otherwise
+               Regular x 0.95   weight acceptable, too wide
+               Regular x 0.91   <- here
+               Regular x 0.87   clearly light
 
-             The catch, and the reason this took several rounds: stem thickness and glyph
-             width are BOTH proportional to textSize x textScaleX, so their ratio is set by
-             the face alone and nothing else on this TextView can separate them. Wanting a
-             lighter stroke at the same width is therefore not a thing that can be asked
-             for here — the only faces available are Regular and Medium, roughly 15% apart,
-             with nothing between. Lighter at a given width means Regular; the same stem
-             with Medium means going narrower. 0.82 takes the narrower route because every
-             round of feedback on this field has wanted less width.
+             Medium is out at ANY width, and the reason is worth keeping: textScaleX scales
+             horizontally only. Vertical stems thin as it drops, but horizontal strokes —
+             crossbars, the tops and bottoms of curves, which digits are mostly made of —
+             keep their full thickness. Condensing a heavier face gives a narrow heavy
+             face, not a lighter one. An earlier revision of this comment reasoned that
+             "stem = weight x textScaleX" made the two continuous and interchangeable; the
+             device disproved it at 0.82, where the predicted stroke matched an already
+             accepted one and still looked heavier.
+
+             So with this family the trade is simply: narrower is lighter, on one face.
+             0.91 sits between the two Regular points actually judged on the device.
 
              Note textFontWeight snaps to the faces that exist on this device
              (100/200/300/400/700/900 as mapped below) — an intermediate value like 350
@@ -175,9 +179,9 @@
             android:includeFontPadding="false"
             android:maxLines="1"
             android:fontFamily="sans-serif"
-            android:textFontWeight="400"
+            android:textFontWeight="300"
             android:textStyle="normal"
-            android:textScaleX="0.82"
+            android:textScaleX="0.91"
             android:textSize="28sp"
             android:text="--" />
 
