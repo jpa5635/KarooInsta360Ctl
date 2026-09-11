@@ -107,55 +107,42 @@
              row and the number, which is why the spacing looked wider than a native Karoo
              field's.
 
-             THE FONT (2026-09-11, resolved). The value uses "ibm-plex-sans-condensed",
-             the genuinely condensed face already installed on the Karoo. Everything
-             between 0.1.36 and 0.1.53 was an attempt to imitate it by squashing the normal
-             face, and that could never have worked.
+             THE FONT (2026-09-11, finally). The value uses "monospace", which on this
+             device is NOT a typewriter face — /system/etc/fonts.xml declares:
 
-             /system/etc/fonts.xml maps "sans-serif" to IBM Plex Sans (100=Thin, 200=Light,
-             300=Regular, 400=Medium, 700=SemiBold, 900=Bold — non-standard, and why a
-             default TextView renders in Medium here). It also declares:
-
-               <family name="ibm-sans-cond">
-                   <font weight="600" style="normal">IBMPlexSansCondensed-Medium.otf</font>
+               <family name="monospace">
+                   <font weight="400" style="normal">Relative12-Regular.otf</font>
                </family>
-               <alias name="ibm-plex-sans-condensed" to="ibm-sans-cond" />
+               <alias name="relative" to="monospace" />
 
-             That face IS selectable as android:fontFamily="ibm-plex-sans-condensed" at
-             textFontWeight 600, and 0.1.54 did exactly that. It read correct in shape but
-             heavier than the stock fields, and no weight request can fix that: the family
-             contains exactly one file, so every weight resolves to Medium.
+             and that file's internal name is "Hammerhead Relative 12 Regular". It is
+             Hammerhead's own commissioned typeface, on the device for no other reason than
+             that their UI draws with it. Everything from 0.1.36 to 0.1.59 was an attempt to
+             match it with a different family and then correct the mismatch by squashing.
 
-             Hence the bundled Regular cut of the same family. It is the identical design
-             one step lighter, and the metrics confirm nothing else moves — digit advance
-             540/1000 and cap height 698/1000 in both, so swapping them changes stroke
-             weight while leaving width and height untouched. IBM Plex is SIL OFL
-             (licences/OFL-IBMPlex.txt) and one face is about 140KB.
+             Why the earlier candidates were wrong, so nobody re-tries them:
 
-             If a bundled @font ever fails to resolve inside RemoteViews (these layouts are
-             inflated in Karoo's process, not ours), the fallback is
-             android:fontFamily="ibm-plex-sans-condensed" with textFontWeight="600" — the
-             installed face, correct shape, slightly heavy.
+               sans-serif                -> IBM Plex Sans. Too wide; squashing it thins the
+                                            stems (textScaleX scales the rendered glyph, so
+                                            width and stroke move together) and never gives
+                                            narrow-with-full-stroke.
+               sans-serif-condensed      -> aliased straight back to sans-serif. A no-op.
+               ibm-plex-sans-condensed   -> a real condensed face, but the family holds only
+                                            IBMPlexSansCondensed-Medium.otf, so every weight
+                                            request lands on Medium and it reads heavy.
+               bundled IBM Plex Cond Reg -> right weight, right shape, still the wrong face:
+                                            digits are 540/1000 em against Relative's 500.
 
-             textScaleX is back, at 0.9 then 0.83 (0.1.58, 0.1.59), on top of the condensed
-             face, purely to take width off by request. It still carries the cost described below
-             — 10% thinner stems — but starting from a real condensed design rather than a
-             squashed normal one, so the shape stays right.
+             Relative is 7% narrower in the digits at the same size with a near-identical
+             cap height (700 vs 698), which is most of the width the textScaleX values were
+             chasing — now had for free, without thinning anything. So textScaleX is gone
+             from the value again, and the bundled font and its licence are deleted.
 
-             The note it replaces said not to reintroduce it at all. That still holds as the
-             default: it scales the rendered glyph horizontally:
-             stems thin by the same factor the width drops while horizontal strokes keep
-             full thickness, so a squashed normal face is narrow-and-light, never
-             narrow-with-full-stroke. Roughly a dozen settings were judged on the device
-             and every one was too wide or too light for exactly that reason. A real
-             condensed design has no such trade.
+             Tabular figures come free: the family is monospace, so every digit already has
+             the same advance and no fontFeatureSettings is needed.
 
-             Two related notes. "sans-serif-condensed" is NOT this face — fonts.xml aliases
-             it straight back to plain sans-serif, which is why the 0.1.20-era attempts at
-             it were no-ops. And this face needs no fontFeatureSettings="tnum": its digits
-             are already tabular, all exactly 540/1000 units wide, so numbers don't shift
-             as they tick over. The family carries no tnum feature at all, because there is
-             nothing for it to switch to. -->
+             If the numerals still look off after this, the difference is NOT the family —
+             it is size (VALUE_SIZE_RATIO), weight, or something outside this TextView. -->
         <TextView
             android:id="@+id/distanceValue"
             android:layout_width="match_parent"
@@ -164,8 +151,7 @@
             android:gravity="center"
             android:includeFontPadding="false"
             android:maxLines="1"
-            android:fontFamily="@font/ibm_plex_sans_condensed_regular"
-            android:textScaleX="0.83"
+            android:fontFamily="monospace"
             android:textStyle="normal"
             android:textSize="28sp"
             android:text="--" />
