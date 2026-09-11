@@ -635,7 +635,15 @@ object Insta360ConnectionManager {
             Insta360BleClient.NOTIFY_CAPTURE_AUTO_SPLIT ->
                 Log.i(TAG, "[$address] capture auto-split (still recording): $hex")
 
-            else -> Log.d(TAG, "[$address] Notification code=0x${code.toString(16)} len=${payload.size} raw=$hex")
+            // INFO, not DEBUG, and with the fields decoded: the Ace Pro 2 turns out not to
+            // send NOTIFY_BATTERY_UPDATE (0x2003) at all — what it actually pushes is
+            // 0x2017 and 0x203c — so finding which code really carries the battery level
+            // means being able to read these in an ordinary logcat without a debug filter.
+            else -> Log.i(
+                TAG,
+                "[$address] Notification code=0x${code.toString(16)} len=${payload.size} " +
+                    "raw=$hex varintFields=${parseVarintFields(payload)}",
+            )
         }
     }
 

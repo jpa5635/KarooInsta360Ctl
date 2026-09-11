@@ -11,7 +11,17 @@
      Karoo is API 32, so this stays with declared views. Note that a GONE child does *not*
      reserve space: it drops out of layout_weight distribution entirely, so one visible
      stripe fills the cell, two split it in half, three in thirds — no gaps, no
-     pre-allocation, and a camera lost mid-ride simply repaints with one stripe fewer. -->
+     pre-allocation, and a camera lost mid-ride simply repaints with one stripe fewer.
+
+     The stripes are ImageViews, NOT plain View elements, and that is not cosmetic.
+     RemoteViews inflates through a filter that is literally
+     `clazz.isAnnotationPresent(RemoteViews.RemoteView.class)`, and android.view.View does
+     not carry that annotation - ImageView, TextView, FrameLayout and LinearLayout all do.
+     A bare View anywhere in this file makes the ENTIRE layout fail to inflate, so the tile
+     never renders and never gets its PendingIntent attached: the field goes blank and
+     stops responding to taps, with nothing under our own log tag to say why. That was the
+     0.1.32 regression. Each stripe is just a coloured rectangle with no src, painted by
+     setBackgroundColor. -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/recordingControlRoot"
     android:layout_width="match_parent"
@@ -24,25 +34,28 @@
         android:layout_height="match_parent"
         android:orientation="horizontal">
 
-        <View
+        <ImageView
             android:id="@+id/recordingStripe1"
             android:layout_width="0dp"
             android:layout_height="match_parent"
             android:layout_weight="1"
+            android:contentDescription="@null"
             android:visibility="gone" />
 
-        <View
+        <ImageView
             android:id="@+id/recordingStripe2"
             android:layout_width="0dp"
             android:layout_height="match_parent"
             android:layout_weight="1"
+            android:contentDescription="@null"
             android:visibility="gone" />
 
-        <View
+        <ImageView
             android:id="@+id/recordingStripe3"
             android:layout_width="0dp"
             android:layout_height="match_parent"
             android:layout_weight="1"
+            android:contentDescription="@null"
             android:visibility="gone" />
 
     </LinearLayout>
