@@ -114,12 +114,21 @@
 
              If Regular still reads heavy, 200 gives Light.
 
-             (2026-09-11) textScaleX is back to 1.0 here. The earlier note that it
-             condenses "without touching the stroke" is wrong: the transform is applied to
-             the rendered glyph, so a vertical stem is narrowed by exactly the same factor
-             as the glyph. At 0.92 every stroke was 8% thinner than Karoo's own fields,
-             which read as slightly-less-bold even though the weight matched. The value has
-             a full-width row to itself, so there is nothing to condense for. -->
+             (2026-09-11) textScaleX: 0.92 -> 1.0 -> 0.90. The earlier note that it
+             condenses "without touching the stroke" is wrong — the transform applies to the
+             rendered glyph, so a vertical stem narrows by exactly the same factor. That is
+             the whole difficulty here: at matching height the stock field is about 10%
+             narrower than this one, and the only lever we have narrows the strokes by the
+             same amount, which is what read as slightly-less-bold at 0.92.
+
+             0.90 is set because width was the complaint that mattered more. If the stroke
+             now looks thin again, the real fix is not this attribute but the genuinely
+             condensed face on this device, "ibm-plex-sans-condensed" — a designed condensed
+             font narrows the glyph while keeping the stem, and it ships at weight 600,
+             which would also add back some of the thickness. It was passed over earlier on
+             the assumption that 600 would be too heavy; that assumption was made when we
+             were trying to get *thinner*, and is worth retesting now that we want narrower
+             without thinner. -->
         <TextView
             android:id="@+id/distanceValue"
             android:layout_width="match_parent"
@@ -131,7 +140,7 @@
             android:fontFamily="sans-serif"
             android:textFontWeight="300"
             android:textStyle="normal"
-            android:textScaleX="1.0"
+            android:textScaleX="0.90"
             android:textSize="28sp"
             android:text="--" />
 
