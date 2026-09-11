@@ -180,15 +180,14 @@ class RecordingDistanceDataType(
                         val preview = config.preview && index == 0 && cameras.isEmpty()
 
                         if (camera == null && !preview) {
-                            setViewVisibility(slot.dotId, View.GONE)
-                            setViewVisibility(slot.percentId, View.GONE)
+                            setViewVisibility(slot.containerId, View.GONE)
                             return@forEachIndexed
                         }
+                        setViewVisibility(slot.containerId, View.VISIBLE)
 
                         val percent = camera?.batteryPercent
-                        setViewVisibility(slot.percentId, View.VISIBLE)
                         // "--%" rather than a collapsed slot for a camera that is present
-                        // but hasn't pushed a level yet: it's connected, and blanking it
+                        // but hasn't reported a level yet: it's connected, and blanking it
                         // would make the number pop in later and shove its neighbours over.
                         setTextViewText(slot.percentId, if (percent == null) "--%" else "$percent%")
                         setTextViewTextSize(slot.percentId, TypedValue.COMPLEX_UNIT_SP, labelTextSizeSp)
@@ -201,8 +200,9 @@ class RecordingDistanceDataType(
                         val bandColor = camera?.batteryBand?.fillColor ?: R.color.recording_dot
                         setInt(slot.dotId, "setBackgroundResource", ringDrawable)
                         setInt(slot.dotId, "setColorFilter", ContextCompat.getColor(context, bandColor))
-                        // INVISIBLE rather than GONE for a camera that isn't recording, so
-                        // starting one doesn't shift its percentage sideways.
+                        // INVISIBLE rather than GONE for a camera that isn't recording: the
+                        // dot now sits under its percentage, so collapsing it would change
+                        // the row's height and shift the distance value below it.
                         val lit = (camera?.recording == true && dotOn) || preview
                         setViewVisibility(slot.dotId, if (lit) View.VISIBLE else View.INVISIBLE)
                     }
@@ -253,11 +253,16 @@ class RecordingDistanceDataType(
          * than allowed to squeeze the label into an ellipsis.
          */
         private val CAMERA_SLOTS = listOf(
-            CameraSlot(R.id.batteryDot1, R.id.batteryPct1),
-            CameraSlot(R.id.batteryDot2, R.id.batteryPct2),
-            CameraSlot(R.id.batteryDot3, R.id.batteryPct3),
+            CameraSlot(R.id.batterySlot1, R.id.batteryDot1, R.id.batteryPct1),
+            CameraSlot(R.id.batterySlot2, R.id.batteryDot2, R.id.batteryPct2),
+            CameraSlot(R.id.batterySlot3, R.id.batteryDot3, R.id.batteryPct3),
         )
     }
 
-    private data class CameraSlot(val dotId: Int, val percentId: Int)
+    /**
+     * One camera's column in the top row: the percentage with its recording dot stacked
+     * underneath. Stacked rather than side by side so three cameras plus the label fit
+     * across a half-width cell without the label being truncated.
+     */
+    private data class CameraSlot(val containerId: Int, val dotId: Int, val percentId: Int)
 }
