@@ -277,20 +277,22 @@ class RecordingDistanceDataType(
          * the value TextView reserving a descender that digits don't have — shrinking the
          * text only made the number smaller while leaving the gap exactly where it was.
          *
-         * 1.0 -> 1.08 -> 1.05. Nothing here measures the cell: the size comes from Karoo's
-         * figure and the row then centres whatever it gets in the leftover height, so 1.0
-         * only matches in theory and going past it is legitimate as long as it fits.
+         * 1.0 -> 1.08 -> 1.05 -> 1.0, and this time measured rather than guessed.
          *
-         * 1.08 was set while the field was still using the wrong typeface, so it was partly
-         * compensating for a face whose digits were a different size and width. With
-         * Relative in place (0.1.60) the value read very slightly larger than neighbouring
-         * stock fields — hence 1.05. That it isn't 1.0 suggests Karoo's own fields also
-         * draw a little above their nominal textSize.
+         * A photo of the ride page was compared glyph to glyph: the leading zero in SPEED
+         * and in AVG SPEED both measured 116px tall, ours measured 121px, and the white
+         * panels measured 844px against 848px at those two heights, so the camera angle
+         * accounts for about 0.5% of it. That leaves the value 3.8% larger than the stock
+         * fields at a ratio of 1.05 — which puts the matching ratio at 1.05/1.038 ≈ 1.01.
          *
-         * This is the dial that clips first. If the tops or bottoms of digits are ever cut
-         * off on a short cell, lower this and change nothing else.
+         * So 1.0 it is, and the tidy interpretation is the right one: Karoo draws its value
+         * at exactly the textSize it reports, and every value above 1.0 this constant has
+         * held was compensating for the wrong typeface rather than for anything real.
+         *
+         * This is still the dial that clips first. If the tops or bottoms of digits are
+         * ever cut off on a short cell, lower this and change nothing else.
          */
-        private const val VALUE_SIZE_RATIO = 1.05f
+        private const val VALUE_SIZE_RATIO = 1.0f
         private const val MIN_LABEL_SP = 10f
 
         /**
