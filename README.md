@@ -18,7 +18,7 @@ The APK lives on the
 the head unit depends on which Karoo you have.
 
 **Karoo 3 — Hammerhead Companion app.** No computer needed. On your phone, open the
-Releases page in a browser, long-press the `karoo-insta360-<version>-debug.apk` link and
+Releases page in a browser, long-press the `karoo-insta360-<version>.apk` link and
 share it with the Hammerhead Companion app. Alternatively, download the APK first and
 share the file itself from your phone's file manager. The Companion app shows a
 transferring screen and an install prompt appears on the Karoo — tap **Install** there to
@@ -28,7 +28,7 @@ finish. The Karoo has to be switched on and on Wi-Fi for this to work.
 Karoo in developer mode:
 
 ```
-adb install -r karoo-insta360-<version>-debug.apk
+adb install -r karoo-insta360-<version>.apk
 ```
 
 Either way, open the app on the Karoo once afterwards and grant Bluetooth permissions when
@@ -304,19 +304,22 @@ gpr.key=ghp_yourtoken
 Then:
 
 ```
-gradle assembleDebug
+gradle assembleRelease
 ```
 
-Output lands in `app/build/outputs/apk/debug/`.
+Output lands in `app/build/outputs/apk/release/` as `karoo-insta360-<version>.apk`.
+`gradle assembleDebug` also works and writes the same filename under `apk/debug/` — worth
+knowing, since building both leaves two identically named files in different directories.
 
 `.github/workflows/build.yml` builds on every push to `main` and uploads the APK as a run
-artifact; pushing a tag like `v0.1.27` also attaches it to a release. It needs the same
+artifact; pushing a tag like `v1.0.0` also attaches it to a release. It needs the same
 token as a repository secret named `KAROO_EXT_TOKEN`.
 
-Builds are signed with the committed `app/shared-debug.keystore` so every build, local or
-CI, installs over the previous one instead of requiring an uninstall. It uses Android's
-standard debug credentials, which are public by design — don't reuse it for anything
-published.
+Both variants are signed with the committed `app/shared-debug.keystore`, so every build —
+debug or release, local or CI — installs over the previous one instead of requiring an
+uninstall. That's what lets 1.0.0 land on top of a 0.1.x install with saved cameras and
+profiles intact. It uses Android's standard debug credentials, which are public by design:
+fine for sideloading, and not to be reused for anything published to a store.
 
 Bump `versionCode` and `versionName` in `app/build.gradle.kts` before tagging; nothing
 derives them automatically.

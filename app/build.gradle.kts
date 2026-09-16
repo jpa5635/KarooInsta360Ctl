@@ -13,11 +13,13 @@ android {
         applicationId = "com.example.karooinsta360"
         minSdk = 26
         targetSdk = 34
-        // versionCode just needs to keep increasing by 1 each build — it doesn't need to
-        // encode the versionName scheme. versionName itself is 0.1.<build number> rather
-        // than 0.<build number> going forward, per request.
-        versionCode = 65
-        versionName = "0.1.65"
+        // versionCode just needs to keep increasing by 1 each build — it deliberately does
+        // not encode the versionName scheme, which is why it carries straight on from the
+        // 0.1.x series into 1.0.0. Android compares versionCode and nothing else when
+        // deciding whether an APK is an upgrade, so this must never go backwards even if
+        // the versionName does.
+        versionCode = 66
+        versionName = "1.0.0"
     }
 
     // Added (2026-09-07). Without this, every build signs with whatever auto-generated
@@ -44,7 +46,17 @@ android {
             signingConfig = signingConfigs.getByName("shared")
         }
         release {
+            // Left off for 1.0.0 deliberately. Enabling R8 here would be the first time
+            // this app shipped shrunk and obfuscated code, and the parts most likely to
+            // break under it — reflective RemoteViews method lookup by name
+            // (setBackgroundResource, setColorFilter) and the karoo-ext callback surface —
+            // are exactly the parts with no test coverage and the hardest failures to
+            // diagnose on a head unit.
             isMinifyEnabled = false
+            // The same committed keystore the debug variant uses, which is what lets a
+            // release APK install over an existing debug install without wiping saved
+            // cameras and profiles. Changing this key later would force every user to
+            // uninstall first.
             signingConfig = signingConfigs.getByName("shared")
         }
     }
@@ -67,6 +79,14 @@ android {
 // project's default output once it's sitting in a Downloads folder or attached to a
 // GitHub release. Name it after what it actually is instead.
 //
+// The variant name is no longer part of the filename (1.0.0). Releases build the release
+// variant, and "karoo-insta360-1.0.0-release.apk" reads like an internal build artefact
+// rather than something to hand someone. Note this is cosmetic as far as upgrading goes:
+// Android decides that on applicationId, signing key and versionCode, and ignores the
+// filename entirely — so renaming cannot break an update, and a debug build of the same
+// version would now overwrite the release file of the same name locally, which is the one
+// thing to watch.
+//
 // `outputFileName` isn't exposed on the public VariantOutput interface (AGP 8.13.2) —
 // only on the impl class — so this cast is required; it's the approach Android's own
 // samples use for renaming APK output, not a hack around the API.
@@ -75,7 +95,7 @@ androidComponents {
         variant.outputs.forEach { output ->
             if (output is VariantOutputImpl) {
                 output.outputFileName.set(
-                    "karoo-insta360-${android.defaultConfig.versionName}-${variant.name}.apk",
+                    "karoo-insta360-${android.defaultConfig.versionName}.apk",
                 )
             }
         }
