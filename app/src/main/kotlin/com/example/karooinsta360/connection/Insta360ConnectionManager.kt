@@ -1170,7 +1170,26 @@ object Insta360ConnectionManager {
                     connectedFlags[address] = false
                     clearBattery(address)
                     setRecording(address, false)
-                    clients.remove(address)
+                    // **Fixed (2026-09-15)** — this used to be a bare clients.remove(),
+                    // which drops our reference but never calls close() on the
+                    // BluetoothGatt. Android keeps a closed-over GATT client registered and
+                    // its callbacks live, so when retryLater() below built a second client
+                    // for the same camera, BOTH delivered every frame. That showed up as
+                    // paired log lines a few milliseconds apart with the second reading
+                    // "req=-1", because the first delivery had already consumed the pending
+                    // sequence number.
+                    //
+                    // The 0.1.62 duplicate filter cannot catch this: each client instance
+                    // has its own filter state and each one legitimately sees its own copy
+                    // exactly once. The duplication is two connections, not two
+                    // characteristics.
+                    //
+                    // Leaking these is worse than noisy. An app may hold only a limited
+                    // number of registered GATT clients (32 on most builds), and every
+                    // disconnect-reconnect cycle burned one permanently, so enough
+                    // reconnects in a ride would eventually stop BLE working at all until
+                    // the process restarted.
+                    clients.remove(address)?.disconnect()
                     retryLater(address)
                 }
 
@@ -1219,7 +1238,11 @@ object Insta360ConnectionManager {
                 }
             },
         )
-        clients[address] = client
+        // put() rather than [] so any client already registered for this address is closed
+        // rather than orphaned. connectToSaved guards against this, but a leaked GATT is
+        // expensive enough — see onDisconnected above — to be worth making structurally
+        // impossible at the one place clients are created.
+        clients.put(address, client)?.disconnect()
         client.connect(device)
     }
 }
