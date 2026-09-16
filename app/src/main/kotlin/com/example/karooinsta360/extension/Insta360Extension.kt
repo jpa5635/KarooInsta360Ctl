@@ -249,11 +249,29 @@ class Insta360Extension : KarooExtension(EXTENSION_ID, "1.0") {
      * can't pick out one specific camera).
      */
     override fun onBonusAction(actionId: String) {
+        // Logged unconditionally, and first: until now only the unknown-action branch said
+        // anything, so a button press that never reached the extension and one that
+        // reached it and did nothing looked identical in logcat — which is exactly the
+        // distinction you need when a controller button "isn't working".
+        Log.i(TAG, "onBonusAction received: actionId=$actionId")
         when (actionId) {
-            BONUS_ACTION_TOGGLE_RECORDING -> Insta360ConnectionManager.toggleAllCameras(
-                this,
-                RecordingReason.Manual.Source.BONUS_ACTION,
-            )
+            BONUS_ACTION_TOGGLE_RECORDING -> {
+                val cameras = CameraStore.getCameras(this)
+                val connected = cameras.count { Insta360ConnectionManager.isConnected(it.address) }
+                // toggleAllCameras is silent when there is nothing to act on, so say what
+                // it had to work with. A press with 0 connected cameras is the most likely
+                // way this "does nothing", and it is indistinguishable from a broken
+                // button without this line.
+                Log.i(
+                    TAG,
+                    "BonusAction toggle: ${cameras.size} saved camera(s), $connected connected, " +
+                        "anyRecording=${Insta360ConnectionManager.isAnyCameraRecording(this)}",
+                )
+                Insta360ConnectionManager.toggleAllCameras(
+                    this,
+                    RecordingReason.Manual.Source.BONUS_ACTION,
+                )
+            }
             else -> Log.w(TAG, "Unknown bonus action: $actionId")
         }
     }

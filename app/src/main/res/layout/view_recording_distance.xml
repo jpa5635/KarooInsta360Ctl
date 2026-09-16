@@ -100,7 +100,20 @@
 
         </LinearLayout>
 
-        <!-- includeFontPadding is false here to match every other TextView in this file.
+        <!-- paddingTop nudges the digits down to sit where a stock field's do.
+
+             This row is layout_weight=1 with gravity=center, so it centres the value in
+             whatever height the label row leaves. Karoo draws its own header above its
+             value, and our label row is one 11sp line, which is shorter than that header —
+             so our leftover space starts higher and the centred digits land high with it.
+             Measured from a ride-page photo: about 9px of real difference at screen
+             resolution, roughly 2dp.
+
+             A padding rather than a gravity change because bottom-gravity would peg the
+             digits to the cell edge and move with cell height instead of tracking the
+             header difference, which is fixed. If it's still off, this is the dial.
+
+             includeFontPadding is false here to match every other TextView in this file.
              It was true, with no reason recorded, and that was the gap: the flag reserves
              the font's full ascent AND descent, and these are digits, which have no
              descender to reserve for. The reserved-but-unused band sat between the label
@@ -149,6 +162,7 @@
             android:layout_height="0dp"
             android:layout_weight="1"
             android:gravity="center"
+            android:paddingTop="2dp"
             android:includeFontPadding="false"
             android:maxLines="1"
             android:fontFamily="monospace"
