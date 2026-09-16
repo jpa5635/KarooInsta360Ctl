@@ -21,6 +21,13 @@ jobs:
   build:
     runs-on: ubuntu-latest
 
+    # Needed by the release step below. GITHUB_TOKEN defaults to read-only in this
+    # repository, which is why attaching the APK to the v1.0.0 release failed with
+    # "Resource not accessible by integration". Scoped to this job, and to contents
+    # only — the token can write releases and nothing else.
+    permissions:
+      contents: write
+
     steps:
       - uses: actions/checkout@v4
 
@@ -60,9 +67,13 @@ jobs:
           path: app/build/outputs/apk/release/*.apk
           if-no-files-found: error
 
+      # Attaches to an existing release if there is one, creating it otherwise.
+      #
+      # generate_release_notes is deliberately off: release notes are written by hand
+      # and set with `gh release create --notes-file`. Leaving it on would replace that
+      # body with an auto-generated commit list on every tag build.
       - name: Attach APK to release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           files: app/build/outputs/apk/release/*.apk
-          generate_release_notes: true
