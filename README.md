@@ -217,8 +217,11 @@ that aren't recording get no stripe, so a coloured tile still means "something i
 — the colour just also tells you how much is left in each one. Up to three cameras are
 shown; a camera that drops out mid-ride loses its stripe and the rest expand to fill.
 
-**Distance** — ride distance, with each connected camera's battery percentage along the top
-left and the field label pushed to the right. A percentage turns red and blinks while
+**Distance** — ride distance, with each connected camera's battery percentage in the header
+row beside the field label. Label and value follow the page's field alignment the way
+Karoo's own fields do, and the percentages sit on the opposite side from the label (on the
+left when centred). The label is drawn at native size and shrinks only as far as it must to
+fit the connected cameras' percentages. A percentage turns red and blinks while
 *that* camera is recording, so you can see which cameras are rolling and how much they have
 left without spending a cell on either. Use it in place of your usual Distance field and the
 recording indicator costs you no page space at all.

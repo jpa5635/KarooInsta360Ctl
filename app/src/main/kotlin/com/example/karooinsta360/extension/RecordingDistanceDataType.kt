@@ -1,7 +1,10 @@
 package com.example.karooinsta360.extension
 
 import android.content.Context
+import android.graphics.Paint
+import android.graphics.Typeface
 import android.util.Log
+import android.view.Gravity
 import android.util.TypedValue
 import android.view.View
 import android.widget.RemoteViews
@@ -108,19 +111,29 @@ class RecordingDistanceDataType(
 
         // (2026-09-07) ViewConfig.textSize is documented as "font size used in standard
         // numeric view of this grid size", i.e. exactly the size Karoo's own fields render
-        // at in this cell. The first version ignored it in favour of hardcoded sizes per
-        // cell shape, which is why this field didn't match its neighbours. Use the value
-        // the system hands us.
-        // Scaled down from ViewConfig.textSize rather than used raw. That value is the
-        // size Karoo renders at in this cell when *it* draws the header, but we draw our
-        // own label inside the same space, so the value has one row less height than the
-        // figure assumes — at full size the bottoms of the digits were being clipped by
-        // the field's lower boundary.
+        // at in this cell. See VALUE_SIZE_RATIO for why it is used unscaled.
         val valueTextSizeSp = config.textSize * VALUE_SIZE_RATIO
 
-        // Header scaled off the same number rather than fixed, so it stays proportionate
-        // across cell sizes. Floored so it doesn't vanish in a small cell.
-        val labelTextSizeSp = (config.textSize * LABEL_SIZE_RATIO).coerceAtLeast(MIN_LABEL_SP)
+        // (2026-09-22) Everything about the header that doesn't change frame to frame.
+        // The label's *nominal* size is what a native header would be; what it actually
+        // renders at depends on how many cameras are connected, so that is worked out per
+        // frame by fitHeader().
+        val nominalLabelSp = (config.textSize * LABEL_SIZE_RATIO).coerceAtLeast(MIN_LABEL_SP)
+        val metrics = HeaderMetrics(context, config)
+        val alignment = config.alignment
+        // Label and value both follow the rider's alignment setting, as native fields do.
+        val horizontal = when (alignment) {
+            ViewConfig.Alignment.LEFT -> Gravity.START
+            ViewConfig.Alignment.CENTER -> Gravity.CENTER_HORIZONTAL
+            ViewConfig.Alignment.RIGHT -> Gravity.END
+        }
+        val labelGravity = horizontal or Gravity.BOTTOM
+        val valueGravity = horizontal or Gravity.CENTER_VERTICAL
+        // Percentages go on the edge the label isn't on. CENTER keeps them at the start,
+        // and fitHeader() reserves the same width on the other side so the label stays
+        // centred on the cell.
+        val pctOnEnd = alignment == ViewConfig.Alignment.LEFT
+        val pctRowGravity = (if (pctOnEnd) Gravity.END else Gravity.START) or Gravity.BOTTOM
 
         // Latest values, written by their own collectors and read by the render loop.
         val meters = AtomicReference<Double?>(null)
@@ -156,19 +169,28 @@ class RecordingDistanceDataType(
                     if (dark) R.color.recording_dot else R.color.field_recording_bg
                 // Only connected cameras get a slot. A camera that isn't there shows
                 // nothing at all rather than a placeholder — with none connected this
-                // renders as a plain right-justified DISTANCE label, i.e. as an ordinary
-                // distance field.
+                // renders as a plain DISTANCE label at native size and alignment, i.e. as
+                // an ordinary distance field.
                 val cameras = Insta360ConnectionManager.getCameraStates(context)
                     .filter { it.connected }
                     .take(CAMERA_SLOTS.size)
 
+                val visibleSlots = if (cameras.isEmpty() && config.preview) 1 else cameras.size
+                val header = fitHeader(metrics, alignment, nominalLabelSp, visibleSlots)
+
                 val views = RemoteViews(context.packageName, R.layout.view_recording_distance).apply {
+                    setViewPadding(R.id.distanceHeader, 0, metrics.padTopPx, 0, metrics.padBottomPx)
+                    setTextViewTextSize(R.id.distanceHeaderSizer, TypedValue.COMPLEX_UNIT_SP, nominalLabelSp)
+                    setInt(R.id.distanceLabel, "setGravity", labelGravity)
+                    setInt(R.id.distancePctRow, "setGravity", pctRowGravity)
+                    setInt(R.id.distanceValue, "setGravity", valueGravity)
+
                     // Just the field name, matching how Karoo labels its own fields. The
                     // unit is deliberately not shown: the rider set it in their profile
                     // and it doesn't change mid-ride, so repeating it in every frame is
                     // noise on a cell this small.
                     setTextViewText(R.id.distanceLabel, "DISTANCE")
-                    setTextViewTextSize(R.id.distanceLabel, TypedValue.COMPLEX_UNIT_SP, labelTextSizeSp)
+                    setTextViewTextSize(R.id.distanceLabel, TypedValue.COMPLEX_UNIT_SP, header.labelSp)
                     setTextColor(R.id.distanceLabel, ContextCompat.getColor(context, textColor))
                     setTextViewText(R.id.distanceValue, formatDistance(meters.get(), imperial.get()))
                     setTextViewTextSize(R.id.distanceValue, TypedValue.COMPLEX_UNIT_SP, valueTextSizeSp)
@@ -191,7 +213,14 @@ class RecordingDistanceDataType(
                         // but hasn't reported a level yet: it's connected, and blanking it
                         // would make the number pop in later and shove its neighbours over.
                         setTextViewText(slot.percentId, if (percent == null) "--%" else "$percent%")
-                        setTextViewTextSize(slot.percentId, TypedValue.COMPLEX_UNIT_SP, labelTextSizeSp)
+                        setTextViewTextSize(slot.percentId, TypedValue.COMPLEX_UNIT_SP, header.pctSp)
+                        // The gap to the label goes on the label's side of each percentage,
+                        // so the outermost one still sits flush with the cell's edge.
+                        if (pctOnEnd) {
+                            setViewPadding(slot.percentId, metrics.pctGapPx, 0, 0, 0)
+                        } else {
+                            setViewPadding(slot.percentId, 0, 0, metrics.pctGapPx, 0)
+                        }
 
                         // Red while this camera is recording, the ordinary field text
                         // colour otherwise. Colour carries the state on its own, so a
@@ -227,6 +256,86 @@ class RecordingDistanceDataType(
             profileJob.cancel()
             renderJob?.cancel()
         }
+    }
+
+    /**
+     * Widths the header arithmetic needs, measured once per view rather than per frame.
+     *
+     * Every width is stored per sp of text size. Text width scales linearly with size, so
+     * one measurement at a reference size answers "how wide at N sp" for any N, which is
+     * what lets [fitHeader] solve for a size directly instead of trying sizes in a loop.
+     *
+     * The paints mirror the XML: sans-serif, textScaleX 0.8. They measure with a bold
+     * face for the label and the normal face for the percentages. On Karoo 2 (API 27)
+     * textFontWeight is ignored and the label renders regular, so measuring bold there
+     * overestimates slightly, which errs toward a label that fits.
+     */
+    private class HeaderMetrics(context: Context, config: ViewConfig) {
+        private val dm = context.resources.displayMetrics
+        private fun dp(v: Float) = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, v, dm)
+        private val pxPerSp = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, 1f, dm)
+
+        /** Header row width: the cell less the root's 4dp start and end padding. */
+        val availablePx: Float = config.viewSize.first - 2 * dp(4f)
+
+        val labelPxPerSp: Float = widthPerSp(Typeface.create("sans-serif", Typeface.BOLD), "DISTANCE")
+
+        /**
+         * Measured on "100%", the widest a percentage can be, so the label's size depends
+         * only on how many cameras are connected — not on their charge. Otherwise the label
+         * would resize the moment a battery ticked down from 100 to 99.
+         */
+        val pctPxPerSp: Float = widthPerSp(Typeface.create("sans-serif", Typeface.NORMAL), "100%")
+
+        val pctGapPx: Int = dp(PCT_GAP_DP).toInt()
+        val padTopPx: Int = dp(HEADER_PAD_TOP_DP).toInt()
+        val padBottomPx: Int = dp(HEADER_PAD_BOTTOM_DP).toInt()
+
+        private fun widthPerSp(face: Typeface, text: String): Float {
+            val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                typeface = face
+                textScaleX = 0.8f
+                textSize = 100f
+            }
+            return paint.measureText(text) / 100f * pxPerSp
+        }
+    }
+
+    private data class HeaderSizes(val labelSp: Float, val pctSp: Float)
+
+    /**
+     * Sizes the label and percentages so they share the header row without touching.
+     *
+     * With no cameras the label is simply its native size. Each connected camera takes a
+     * fixed width, and the label gives up size to make room — the label is the one that
+     * yields because everyone knows what the field says, while the percentages are the
+     * information the field adds. Only once the label is down at [MIN_FITTED_LABEL_SP] do the
+     * percentages start shrinking too.
+     *
+     * For CENTER the percentages' width is reserved on *both* sides, because the label is
+     * centred on the whole cell and would otherwise run into them long before it ran out
+     * of room overall.
+     */
+    private fun fitHeader(
+        m: HeaderMetrics,
+        alignment: ViewConfig.Alignment,
+        nominalSp: Float,
+        slots: Int,
+    ): HeaderSizes {
+        if (slots == 0) return HeaderSizes(nominalSp, nominalSp)
+
+        val sides = if (alignment == ViewConfig.Alignment.CENTER) 2 else 1
+        val usable = m.availablePx * (1f - FIT_SAFETY)
+        fun pctBlockPx(sp: Float) = slots * (sp * m.pctPxPerSp + m.pctGapPx)
+
+        val labelSp = ((usable - sides * pctBlockPx(nominalSp)) / m.labelPxPerSp)
+            .coerceAtMost(nominalSp)
+        if (labelSp >= MIN_FITTED_LABEL_SP) return HeaderSizes(labelSp, nominalSp)
+
+        // Label is at its floor; whatever it leaves over is split between the percentages.
+        val leftForPct = (usable - MIN_FITTED_LABEL_SP * m.labelPxPerSp) / sides - slots * m.pctGapPx
+        val pctSp = (leftForPct / (slots * m.pctPxPerSp)).coerceIn(MIN_PCT_SP, nominalSp)
+        return HeaderSizes(MIN_FITTED_LABEL_SP, pctSp)
     }
 
     /**
@@ -293,7 +402,44 @@ class RecordingDistanceDataType(
          * ever cut off on a short cell, lower this and change nothing else.
          */
         private const val VALUE_SIZE_RATIO = 1.0f
+        /** Floor for the label's native size, so it doesn't vanish in a small cell. */
         private const val MIN_LABEL_SP = 10f
+
+        /**
+         * How far the label may shrink below that to make room for camera percentages.
+         * Lower than [MIN_LABEL_SP] on purpose: a slightly small label beside three
+         * batteries is better than a truncated one.
+         */
+        private const val MIN_FITTED_LABEL_SP = 8f
+
+        /** Floor for the percentages once the label has hit [MIN_FITTED_LABEL_SP]. */
+        private const val MIN_PCT_SP = 8f
+
+        /** Space between a percentage and its neighbour (or the label). */
+        private const val PCT_GAP_DP = 6f
+
+        /**
+         * Headroom left unused when fitting the header, so rounding and small differences
+         * between the measuring Paint and the rendered TextView can't make the label and a
+         * percentage kiss.
+         */
+        private const val FIT_SAFETY = 0.04f
+
+        /**
+         * Where the header sits vertically. These are the dials for "the label is too high
+         * or too low next to a native field".
+         *
+         * Starting point (2026-09-22): top + bottom = 3dp, the same total the previous
+         * layout spent above the value (1dp root padding + the value's 2dp paddingTop from
+         * 0.1.64), so the value — which was measured into place — does not move. What
+         * changes is that all 3dp now sit above the label instead of 2dp of it sitting
+         * below, so the label comes down 2dp toward where native headers sit.
+         *
+         * To move only the label, trade between the two. To move label and value together,
+         * change the total.
+         */
+        private const val HEADER_PAD_TOP_DP = 3f
+        private const val HEADER_PAD_BOTTOM_DP = 0f
 
         /**
          * One dot + percentage pair per camera, filled in CameraStore order so the
