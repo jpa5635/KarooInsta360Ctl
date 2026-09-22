@@ -214,7 +214,8 @@ Three data fields, all addable to any ride page.
 recording it reads `REC @ 87%`, with one level per recording camera; it falls back to a
 plain `REC` when no level is known yet.
 The box follows the page's field alignment (Left, Center or Right) the same way Karoo's own
-fields do.
+fields do, and its text sizes itself to the cell, going to one line or two, whichever
+reads larger.
 
 Optionally it can colour itself by battery level instead. Turn on **Colour the Recording
 Control tile by camera battery level** under **Ride Page Fields** and each *recording*

@@ -3,6 +3,9 @@ package com.example.karooinsta360.extension
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.graphics.Paint
+import android.graphics.Typeface
+import android.util.Log
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
@@ -61,6 +64,9 @@ class RecordingControlDataType(extension: String) : DataTypeImpl(extension, TYPE
         }
         val holderGravity = horizontal or Gravity.CENTER_VERTICAL
 
+        val fit = TextFit(context, config)
+        var lastLogged: String? = null
+
         fun render() {
             val states = Insta360ConnectionManager.getCameraStates(context)
             val recordingCameras = states.filter { it.recording }
@@ -110,21 +116,29 @@ class RecordingControlDataType(extension: String) : DataTypeImpl(extension, TYPE
             val levels = recordingCameras.mapNotNull { it.batteryPercent }
             val suffix = if (levels.isEmpty()) "" else levels.joinToString(" ") { "@ $it%" }
 
-            val text = when {
-                recording && suffix.isEmpty() -> "\u25CF REC"
-                // Half-width can't fit the level on the same line at a legible size;
-                // full-width looks sparse with it broken over two.
-                recording && fullWidth -> "\u25CF REC $suffix"
-                recording -> "\u25CF REC\n$suffix"
-                fullWidth -> "Tap to Start"
-                else -> "Tap to\nStart"
+            // Each state offers its text on one line and broken over two, and the one that
+            // can be drawn larger in this cell wins (one line on a tie). See [TextFit].
+            val candidates = when {
+                recording && suffix.isEmpty() -> listOf("\u25CF REC")
+                recording -> listOf("\u25CF REC $suffix", "\u25CF REC\n$suffix")
+                else -> listOf("Tap to Start", "Tap to\nStart")
             }
 
-            val textSizeSp = when {
+            // Upper bounds, not fixed sizes: the sizes this tile has always used, which are
+            // what it still gets wherever they fit. Only a cell too small for them shrinks.
+            val maxSp = when {
                 fullWidth && tall -> 22f
                 fullWidth -> 18f
                 tall -> 16f
                 else -> 14f
+            }
+            val (text, textSizeSp) = fit.best(candidates, maxSp)
+
+            val logLine = "fit: viewSize=${config.viewSize} textSize=${config.textSize} " +
+                "grid=${config.gridSize} -> ${textSizeSp}sp ${text.replace('\n', '|')}"
+            if (logLine != lastLogged) {
+                lastLogged = logLine
+                Log.i(TAG, logLine)
             }
 
             val views = RemoteViews(context.packageName, R.layout.view_recording_control).apply {
@@ -182,7 +196,79 @@ class RecordingControlDataType(extension: String) : DataTypeImpl(extension, TYPE
         }
     }
 
+    /**
+     * Picks a text size for the tile's box so the text fits the cell instead of wrapping
+     * out of the bottom of it (2026-09-22).
+     *
+     * The sizes used to be a fixed table by cell shape. A half-width, quarter-height cell
+     * at 14sp was too small for "Tap to / Start" once Karoo's header took its share of the
+     * height, and the second line ran out of the bottom of the field. Now each candidate
+     * text is measured with a Paint set up like the TextView (default family, bold) and
+     * sized to the largest that fits both across and down, capped at the old table's size.
+     *
+     * Available space is the cell ([ViewConfig.viewSize]) less:
+     *  - the holder's 4dp side padding and the box's own 10dp/6dp padding (layout XML);
+     *  - Karoo's header, which this field keeps (showHeader is left at its default). Its
+     *    height is estimated from the Distance field's measurement of where native labels
+     *    sit: capitals start ~0.22 of textSize down and the label is ~0.34 of textSize, so
+     *    the header ends at roughly [HEADER_RATIO] of textSize plus [HEADER_BASE_DP].
+     *
+     * If Karoo turns out to hand us viewSize *below* its header rather than for the whole
+     * cell, this undersizes the text a little rather than overflowing — the safe side to be
+     * wrong on. The "fit:" log line, set against the Distance field's "header:" line for
+     * a cell of the same size, shows which it is.
+     *
+     * Line height uses the font's top/bottom extents because the tile's TextView keeps
+     * includeFontPadding at its default (true), which reserves exactly that.
+     */
+    private class TextFit(context: Context, config: ViewConfig) {
+        private val dm = context.resources.displayMetrics
+        private fun dp(v: Float) = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, v, dm)
+        private val pxPerSp = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, 1f, dm)
+
+        private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            typeface = Typeface.DEFAULT_BOLD
+            textSize = 100f
+        }
+        private val firstLinePerPx: Float
+        private val extraLinePerPx: Float
+        init {
+            val fm = paint.fontMetrics
+            firstLinePerPx = (fm.bottom - fm.top) / 100f
+            extraLinePerPx = (fm.descent - fm.ascent + fm.leading) / 100f
+        }
+
+        private val availW = (config.viewSize.first - dp(2 * 4f) - dp(2 * 10f)) * (1f - SAFETY)
+        private val availH = (
+            config.viewSize.second -
+                dp(HEADER_BASE_DP) - HEADER_RATIO * config.textSize * pxPerSp -
+                dp(2 * 6f)
+            ) * (1f - SAFETY)
+
+        /** Largest size (sp) at which [text] fits, never above [maxSp] or below [MIN_SP]. */
+        fun sizeFor(text: String, maxSp: Float): Float {
+            val lines = text.split('\n')
+            val widestPerPx = lines.maxOf { paint.measureText(it) } / 100f
+            val heightPerPx = firstLinePerPx + (lines.size - 1) * extraLinePerPx
+            val byWidth = availW / widestPerPx / pxPerSp
+            val byHeight = availH / heightPerPx / pxPerSp
+            return minOf(maxSp, byWidth, byHeight).coerceAtLeast(MIN_SP)
+        }
+
+        /** The candidate that can be drawn largest, and its size. First wins a tie. */
+        fun best(candidates: List<String>, maxSp: Float): Pair<String, Float> =
+            candidates.map { it to sizeFor(it, maxSp) }.maxBy { it.second }
+
+        companion object {
+            private const val HEADER_BASE_DP = 3f
+            private const val HEADER_RATIO = 0.55f
+            private const val SAFETY = 0.06f
+            private const val MIN_SP = 9f
+        }
+    }
+
     companion object {
+        private const val TAG = "RecordingControl"
         const val TYPE_ID = "recording_control"
 
         /**
