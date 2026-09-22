@@ -32,7 +32,11 @@ adb install -r karoo-insta360-<version>.apk
 ```
 
 Either way, open the app on the Karoo once afterwards and grant Bluetooth permissions when
-prompted.
+prompted. While you're there, **if your ride pages use Karoo's light theme, uncheck "Dark
+theme for this extension's data fields"** under **Ride Page Fields**. The fields default to
+dark, and the Distance field draws white text on a transparent background, so on a light
+page it looks completely empty until you change this. See
+[Light and dark fields](#light-and-dark-fields).
 
 Updates install over the top of an existing copy — every build is signed with the same
 committed keystore — so saved cameras and profiles survive.
@@ -260,9 +264,26 @@ shown as current. Unknown levels display as `--%`, and a recording camera with a
 level falls back to the plain recording red rather than to a colour that might be mistaken
 for "not recording".
 
+### Light and dark fields
+
 All of them render in light or dark. Karoo doesn't tell an extension whether your ride
-pages are light or dark, so set it yourself under **Ride Page Fields**. Full-width and
-half-width layouts are handled automatically from whichever cell you drop the field into.
+pages are light or dark, so set it yourself under **Ride Page Fields** with the **Dark
+theme for this extension's data fields** checkbox.
+
+**The default is dark**, matching Karoo's own default field design. If your pages are
+light, uncheck it. Otherwise:
+
+- **Distance** has no background of its own, so dark mode's white text is invisible on a
+  light page and the field looks empty.
+- **INSTA CTRL** still shows, because it paints its own background, but it won't match
+  the fields around it.
+
+The setting applies to every page and every copy of the fields, and it's stored per
+Karoo. A second head unit starts at the default, even if the first one was changed long
+ago. Changes show on the ride page within about a second, with no restart needed.
+
+Full-width and half-width layouts are handled automatically from whichever cell you drop
+the field into.
 
 ---
 

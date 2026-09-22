@@ -1,34 +1,25 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- RemoteViews for the "Distance" data field (see RecordingDistanceDataType.kt).
 
-     Header above, value below, stacked in a LinearLayout so the header takes its space
-     off the top and the value gets what's left instead of overlapping the digits.
+     (2026-09-22) Header and value are LAYERS in the root FrameLayout, not rows in
+     a vertical LinearLayout. Stacked, every change to the header's height moved the value:
+     dropping the label to where native labels sit would have pushed the number down with
+     it, and the value's position was already measured into place. Layered, the value's top
+     inset is its own runtime padding and the header can move freely above it. The Kotlin
+     side keeps the two from overlapping.
 
-     (2026-09-22) The header now follows ViewConfig.alignment, the same setting Karoo's
-     own fields use, instead of always pinning the label right. Label and percentages are
-     overlaid in a FrameLayout rather than laid end to end; the Kotlin side sizes the label
-     so the two never collide, and flips which edge the percentages sit on:
+     The header follows ViewConfig.alignment, the same setting Karoo's own fields use:
 
        RIGHT   percentages left,  label right
        LEFT    label left,        percentages right
-       CENTER  percentages left,  label centred on the whole cell (not on what's left
-               over, which would put it visibly off-centre next to native fields)
+       CENTER  percentages left,  label centred on the whole cell
 
      The label is drawn at its native size and only shrinks when the connected cameras'
      percentages need the room; see fitHeader() for the arithmetic.
 
-     distanceHeaderSizer is never seen. It is an INVISIBLE line of text at the label's
-     nominal size, and it alone sets the header's height. Without it, shrinking the label
-     for a third camera would shorten the header and drag the value up with it — the
-     header must stay the same height regardless of how many cameras are connected.
-
-     Header vertical position is padding set at runtime (setViewPadding) so the dials
-     live with the other tuning constants in the Kotlin. setViewPadding rather than
-     setViewLayoutHeight because the latter is API 31+ and Karoo 2 is API 27.
-
-     Everything from the 2026-09-11 notes on the value TextView still stands and is kept
-     below. The value's 2dp paddingTop from 0.1.64 is gone: it compensated for a header
-     that was shorter than Karoo's, and the header's own top padding now carries that. -->
+     All vertical placement is padding set at runtime (setViewPadding), so the dials live
+     with the other tuning constants in the Kotlin. setViewPadding rather than
+     setViewLayoutHeight/Margin because those are API 31+ and Karoo 2 is API 27. -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/recordingDistanceRoot"
     android:layout_width="match_parent"
@@ -37,132 +28,114 @@
     android:paddingEnd="4dp"
     android:paddingBottom="1dp">
 
-    <LinearLayout
+    <!-- Drawn first so the header layers above it. Horizontal gravity and the top inset
+         (paddingTop) are set at runtime; see valueTopPx in the Kotlin.
+
+         includeFontPadding is false to match every other TextView in this file: the
+         flag reserves the font's full ascent AND descent, and digits have no
+         descender, so the reserved band sat between header and number.
+
+         THE FONT (2026-09-11). "monospace" on this device is not a typewriter face —
+         /system/etc/fonts.xml maps it to Relative12-Regular.otf, "Hammerhead Relative
+         12 Regular", Hammerhead's own UI typeface. Earlier candidates and why they were
+         wrong, so nobody re-tries them:
+
+           sans-serif                -> IBM Plex Sans. Too wide; textScaleX thins the
+                                        stems along with the width.
+           sans-serif-condensed      -> aliased straight back to sans-serif. A no-op.
+           ibm-plex-sans-condensed   -> only Medium is installed; every weight reads heavy.
+           bundled IBM Plex Cond Reg -> right weight, still the wrong face: digits are
+                                        540/1000 em against Relative's 500.
+
+         Tabular figures come free because the family is monospace.
+
+         If the numerals still look off, the difference is NOT the family — it is size
+         (VALUE_SIZE_RATIO), weight, or something outside this TextView. -->
+    <TextView
+        android:id="@+id/distanceValue"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:orientation="vertical">
+        android:gravity="center"
+        android:includeFontPadding="false"
+        android:maxLines="1"
+        android:fontFamily="monospace"
+        android:textStyle="normal"
+        android:textSize="28sp"
+        android:text="--" />
 
-        <FrameLayout
-            android:id="@+id/distanceHeader"
+    <FrameLayout
+        android:id="@+id/distanceHeader"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top">
+
+        <!-- Gravity (START or END, plus BOTTOM) is set at runtime from alignment. -->
+        <LinearLayout
+            android:id="@+id/distancePctRow"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content">
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom"
+            android:orientation="horizontal"
+            android:gravity="start|bottom">
 
             <TextView
-                android:id="@+id/distanceHeaderSizer"
+                android:id="@+id/batteryPct1"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:visibility="invisible"
                 android:includeFontPadding="false"
                 android:maxLines="1"
                 android:fontFamily="sans-serif"
-                android:textFontWeight="700"
-                android:textSize="11sp"
-                android:text="D" />
-
-            <!-- Gravity (START or END, plus BOTTOM) is set at runtime from alignment. -->
-            <LinearLayout
-                android:id="@+id/distancePctRow"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_gravity="bottom"
-                android:orientation="horizontal"
-                android:gravity="start|bottom">
-
-                <TextView
-                    android:id="@+id/batteryPct1"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:includeFontPadding="false"
-                    android:maxLines="1"
-                    android:fontFamily="sans-serif"
-                    android:textFontWeight="300"
-                    android:textScaleX="0.8"
-                    android:textSize="11sp"
-                    android:visibility="gone"
-                    android:text="--%" />
-
-                <TextView
-                    android:id="@+id/batteryPct2"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:includeFontPadding="false"
-                    android:maxLines="1"
-                    android:fontFamily="sans-serif"
-                    android:textFontWeight="300"
-                    android:textScaleX="0.8"
-                    android:textSize="11sp"
-                    android:visibility="gone"
-                    android:text="--%" />
-
-                <TextView
-                    android:id="@+id/batteryPct3"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:includeFontPadding="false"
-                    android:maxLines="1"
-                    android:fontFamily="sans-serif"
-                    android:textFontWeight="300"
-                    android:textScaleX="0.8"
-                    android:textSize="11sp"
-                    android:visibility="gone"
-                    android:text="--%" />
-
-            </LinearLayout>
-
-            <!-- Bottom-anchored, like the percentages, so a shrunk label keeps sitting on
-                 the same line rather than floating up toward the cell edge. -->
-            <TextView
-                android:id="@+id/distanceLabel"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_gravity="bottom"
-                android:gravity="end"
-                android:includeFontPadding="false"
-                android:maxLines="1"
-                android:fontFamily="sans-serif"
-                android:textFontWeight="700"
+                android:textFontWeight="300"
                 android:textScaleX="0.8"
                 android:textSize="11sp"
-                android:text="DISTANCE" />
+                android:visibility="gone"
+                android:text="--%" />
 
-        </FrameLayout>
+            <TextView
+                android:id="@+id/batteryPct2"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:includeFontPadding="false"
+                android:maxLines="1"
+                android:fontFamily="sans-serif"
+                android:textFontWeight="300"
+                android:textScaleX="0.8"
+                android:textSize="11sp"
+                android:visibility="gone"
+                android:text="--%" />
 
-        <!-- Horizontal gravity is set at runtime from ViewConfig.alignment, so the value
-             sits where a native field's does on the same page.
+            <TextView
+                android:id="@+id/batteryPct3"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:includeFontPadding="false"
+                android:maxLines="1"
+                android:fontFamily="sans-serif"
+                android:textFontWeight="300"
+                android:textScaleX="0.8"
+                android:textSize="11sp"
+                android:visibility="gone"
+                android:text="--%" />
 
-             includeFontPadding is false to match every other TextView in this file: the
-             flag reserves the font's full ascent AND descent, and digits have no
-             descender, so the reserved band sat between header and number.
+        </LinearLayout>
 
-             THE FONT (2026-09-11). "monospace" on this device is not a typewriter face —
-             /system/etc/fonts.xml maps it to Relative12-Regular.otf, "Hammerhead Relative
-             12 Regular", Hammerhead's own UI typeface. Earlier candidates and why they were
-             wrong, so nobody re-tries them:
-
-               sans-serif                -> IBM Plex Sans. Too wide; textScaleX thins the
-                                            stems along with the width.
-               sans-serif-condensed      -> aliased straight back to sans-serif. A no-op.
-               ibm-plex-sans-condensed   -> only Medium is installed; every weight reads heavy.
-               bundled IBM Plex Cond Reg -> right weight, still the wrong face: digits are
-                                            540/1000 em against Relative's 500.
-
-             Tabular figures come free because the family is monospace.
-
-             If the numerals still look off, the difference is NOT the family — it is size
-             (VALUE_SIZE_RATIO), weight, or something outside this TextView. -->
+        <!-- Bottom-anchored, like the percentages, so label and percentages share a
+             line. Where that line sits is the header's top padding, which the Kotlin
+             computes so the tops of the label's capitals land where a native label's do. -->
         <TextView
-            android:id="@+id/distanceValue"
+            android:id="@+id/distanceLabel"
             android:layout_width="match_parent"
-            android:layout_height="0dp"
-            android:layout_weight="1"
-            android:gravity="center"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom"
+            android:gravity="end"
             android:includeFontPadding="false"
             android:maxLines="1"
-            android:fontFamily="monospace"
-            android:textStyle="normal"
-            android:textSize="28sp"
-            android:text="--" />
+            android:fontFamily="sans-serif"
+            android:textFontWeight="700"
+            android:textScaleX="0.8"
+            android:textSize="11sp"
+            android:text="DISTANCE" />
 
-    </LinearLayout>
+    </FrameLayout>
 
 </FrameLayout>
