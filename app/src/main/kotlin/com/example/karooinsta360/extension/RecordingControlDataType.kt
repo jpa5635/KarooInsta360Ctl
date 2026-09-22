@@ -4,6 +4,7 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.util.TypedValue
+import android.view.Gravity
 import android.view.View
 import android.widget.RemoteViews
 import androidx.core.content.ContextCompat
@@ -49,6 +50,16 @@ class RecordingControlDataType(extension: String) : DataTypeImpl(extension, TYPE
     override fun startView(context: Context, config: ViewConfig, emitter: ViewEmitter) {
         val fullWidth = isFullWidth(config)
         val tall = config.gridSize.second > QUARTER_HEIGHT_ROWS
+
+        // (2026-09-22) Follow the page's field alignment, as native fields and the Distance
+        // field do. The holder places the box; the TextView's own gravity lines up the two
+        // lines of "Tap to / Start" and "REC / @ 87%" within it the same way.
+        val horizontal = when (config.alignment) {
+            ViewConfig.Alignment.LEFT -> Gravity.START
+            ViewConfig.Alignment.CENTER -> Gravity.CENTER_HORIZONTAL
+            ViewConfig.Alignment.RIGHT -> Gravity.END
+        }
+        val holderGravity = horizontal or Gravity.CENTER_VERTICAL
 
         fun render() {
             val states = Insta360ConnectionManager.getCameraStates(context)
@@ -126,6 +137,8 @@ class RecordingControlDataType(extension: String) : DataTypeImpl(extension, TYPE
                     ContextCompat.getColor(context, background),
                 )
                 setInt(R.id.recordingControlText, "setBackgroundResource", boxBackground)
+                setInt(R.id.recordingControlTextHolder, "setGravity", holderGravity)
+                setInt(R.id.recordingControlText, "setGravity", holderGravity)
 
                 // A GONE stripe drops out of layout_weight distribution entirely, so the
                 // visible ones always split the cell evenly however many there are.

@@ -5,9 +5,17 @@
     id="insta360cam"
     scansDevices="false">
 
+    <!-- "Insta360 Recording" -> "INSTA REC" (2026-09-22). Karoo draws this field's header
+         itself (graphical="false"), and at 18 characters the old name was too long for a
+         half-width cell. Capitals to match native headers, and "INSTA ..." to pair with
+         INSTA CTRL: same prefix so the two sit together in the field picker, different
+         last word so they can't be mistaken for each other — REC is what this one shows,
+         CTRL is what the tile does. Alignment needs nothing from us
+         here: Karoo renders both header and number natively, so they already follow the
+         page's Left/Center/Right setting. -->
     <DataType
         typeId="recording_state"
-        displayName="Insta360 Recording"
+        displayName="INSTA REC"
         description="1 while ANY saved camera is recording, 0 when none are"
         graphical="false"
         icon="@drawable/ic_extension" />

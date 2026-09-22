@@ -213,6 +213,8 @@ Three data fields, all addable to any ride page.
 **INSTA CTRL** — tappable, fills red while any camera is recording. While
 recording it reads `REC @ 87%`, with one level per recording camera; it falls back to a
 plain `REC` when no level is known yet.
+The box follows the page's field alignment (Left, Center or Right) the same way Karoo's own
+fields do.
 
 Optionally it can colour itself by battery level instead. Turn on **Colour the Recording
 Control tile by camera battery level** under **Ride Page Fields** and each *recording*
@@ -237,8 +239,9 @@ Cameras that aren't connected show nothing at all — with none connected the fi
 plain distance field. A camera that's connected but hasn't reported its level yet shows
 `--%`.
 
-**Insta360 Recording** — a plain numeric field, 1 while any camera is recording and 0 when
-none are. Useful if you'd rather build your own layout around it.
+**INSTA REC** (formerly *Insta360 Recording*) — a plain numeric field, 1 while any camera is
+recording and 0 when none are. Useful if you'd rather build your own layout around it.
+Karoo draws it like any native field, so it follows your page's alignment setting.
 
 ### Battery levels
 

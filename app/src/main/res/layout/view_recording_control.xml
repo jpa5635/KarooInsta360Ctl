@@ -60,22 +60,39 @@
 
     </LinearLayout>
 
-    <!-- wrap_content, not match_parent: the box is sized to the text so the stripes stay
+    <!-- (2026-09-22) The text box sits in a full-cell holder whose gravity is set at runtime
+         from ViewConfig.alignment, so the tile follows the page's Left/Center/Right setting
+         like native fields do. A holder rather than layout_gravity on the box because
+         RemoteViews can't change layout params before API 31 (Karoo 2 is API 27), while
+         LinearLayout.setGravity is remotable. The 4dp side padding matches the Distance
+         field's inset, so a left- or right-aligned box doesn't touch the cell edge.
+
+         wrap_content, not match_parent: the box is sized to the text so the stripes stay
          visible above and below it even on a half-width cell. -->
-    <TextView
-        android:id="@+id/recordingControlText"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_gravity="center"
-        android:gravity="center"
-        android:paddingStart="10dp"
-        android:paddingEnd="10dp"
-        android:paddingTop="6dp"
-        android:paddingBottom="6dp"
-        android:background="@drawable/bg_field_text_box_dark"
-        android:textColor="#FFFFFF"
-        android:textStyle="bold"
-        android:textSize="14sp"
-        android:text="Tap to\nStart" />
+    <LinearLayout
+        android:id="@+id/recordingControlTextHolder"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:paddingStart="4dp"
+        android:paddingEnd="4dp"
+        android:orientation="horizontal"
+        android:gravity="center">
+
+        <TextView
+            android:id="@+id/recordingControlText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:gravity="center"
+            android:paddingStart="10dp"
+            android:paddingEnd="10dp"
+            android:paddingTop="6dp"
+            android:paddingBottom="6dp"
+            android:background="@drawable/bg_field_text_box_dark"
+            android:textColor="#FFFFFF"
+            android:textStyle="bold"
+            android:textSize="14sp"
+            android:text="Tap to\nStart" />
+
+    </LinearLayout>
 
 </FrameLayout>
