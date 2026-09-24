@@ -18,8 +18,8 @@ android {
         // 0.1.x series into 1.0.0. Android compares versionCode and nothing else when
         // deciding whether an APK is an upgrade, so this must never go backwards even if
         // the versionName does.
-        versionCode = 67
-        versionName = "1.0.1"
+        versionCode = 68
+        versionName = "1.0.2"
     }
 
     // Added (2026-09-07). Without this, every build signs with whatever auto-generated

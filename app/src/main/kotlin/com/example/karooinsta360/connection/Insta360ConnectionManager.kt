@@ -45,6 +45,15 @@ object Insta360ConnectionManager {
     /** See [statusPoll]. Ten seconds bounds how stale the recording indicator can get. */
     private const val STATUS_POLL_INTERVAL_MS = 10_000L
 
+    /**
+     * **Added (1.0.2)** — how long a connection attempt may take, from `connectGatt` to a
+     * fully subscribed link, before it is torn down and retried. Deliberately longer than
+     * Android's own ~30s direct-connect timeout, so an attempt against a camera that is
+     * simply off still fails through the normal callback; this only catches attempts that
+     * stall without ever calling back.
+     */
+    private const val CONNECT_HANDSHAKE_TIMEOUT_MS = 40_000L
+
     /** How long after connect to wait before logging that the camera has said nothing. */
     private const val SILENCE_WARN_MS = 5_000L
 
@@ -159,6 +168,32 @@ object Insta360ConnectionManager {
     // Addresses currently under manual test control (see pauseAutomation doc below).
     private val automationPaused = ConcurrentHashMap<String, Boolean>()
 
+    /**
+     * **Added (1.0.2)** — cameras the rider stopped from the camera itself, which
+     * automation must not restart until its trigger condition has genuinely ended.
+     *
+     * Before this, a camera-side stop cleared ownership and nothing else. If heart rate,
+     * power or speed was still over threshold — which mid-ride it usually is — the
+     * monitor's next tick read "should be recording, isn't" and sent a start to a camera
+     * that was still finalising the file it had just been told to close, then did it
+     * again every time the status poll reported the camera idle. Beyond overriding the
+     * rider, that is a start command landing mid-stop, and it is the most likely thing to
+     * have knocked an Ace Pro 2's BLE over in the field.
+     *
+     * Unlike [pauseAutomationBriefly] this has no timer: a few seconds is no use when the
+     * latch that wants recording will still be true long after. It is released by the
+     * monitor on the first tick no latch wants recording (see
+     * [releaseExternalStopHold]), or by any deliberate start.
+     */
+    private val externalStopHold = ConcurrentHashMap<String, Boolean>()
+
+    /**
+     * **Added (1.0.2)** — whether the camera itself has reported that it is recording
+     * since the flag last went true. Used to tell a real camera-side stop from a
+     * start command that simply never landed: see [applyExternalRecordingState].
+     */
+    private val cameraConfirmedRecording = ConcurrentHashMap<String, Boolean>()
+
     private var discoveryScanCallback: ScanCallback? = null
 
     fun addListener(listener: Listener) {
@@ -252,6 +287,19 @@ object Insta360ConnectionManager {
     }
 
     fun isAutomationPaused(address: String): Boolean = automationPaused[address] == true
+
+    /** See [externalStopHold]. The monitor checks this before any automatic start. */
+    fun isHeldByExternalStop(address: String): Boolean = externalStopHold[address] == true
+
+    /**
+     * Called by the monitor on every tick no latch wants recording — the trigger condition
+     * the rider overrode has ended, so the next time it is met counts as new.
+     */
+    fun releaseExternalStopHold(address: String) {
+        if (externalStopHold.remove(address) != null) {
+            Log.i(TAG, "[$address] camera-side stop hold released — no trigger wants recording any more")
+        }
+    }
 
     fun getCameraStates(context: Context): List<CameraState> =
         CameraStore.getCameras(context).map { cfg ->
@@ -405,6 +453,9 @@ object Insta360ConnectionManager {
             return
         }
         client.startCapture()
+        // A deliberate start supersedes a camera-side stop. Automation can't get here
+        // while held (the monitor checks first), so in practice this is a manual start.
+        externalStopHold.remove(address)
         noteLocalChange(address, true)
         setRecording(address, true, owner)
         Log.i(TAG, "startCapture($address) SENT — owner=$owner reason=${reason.logText}")
@@ -499,6 +550,7 @@ object Insta360ConnectionManager {
      * since "not recording" has no owner.
      */
     private fun setRecording(address: String, recording: Boolean, owner: RecordingOwner = RecordingOwner.NONE) {
+        if (recordingFlags[address] != recording) cameraConfirmedRecording.remove(address)
         recordingFlags[address] = recording
         recordingOwner[address] = if (recording) owner else RecordingOwner.NONE
         notifyChanged(address)
@@ -932,6 +984,7 @@ object Insta360ConnectionManager {
             // change, this is it — clear the pending marker so a genuine camera-side
             // action a moment later isn't mistaken for more of the same.
             pendingLocalChange.remove(address)
+            if (recording) cameraConfirmedRecording[address] = true
             return
         }
 
@@ -965,7 +1018,30 @@ object Insta360ConnectionManager {
         }
 
         Log.i(TAG, "[$address] external recording state -> $recording (${reason.logText})")
+
+        if (recording) {
+            // The camera started itself (shutter button, remote) — whatever stop the rider
+            // made earlier has been superseded by them starting it again.
+            externalStopHold.remove(address)
+        } else {
+            // Hold automation off — see [externalStopHold]. A notification only exists
+            // because the camera stopped, so it always counts. A polled "not recording"
+            // only counts once the camera had confirmed it was recording: otherwise it
+            // may just mean our start command never landed, and automation retrying that
+            // is exactly what it should do.
+            val confirmed = cameraConfirmedRecording[address] == true
+            if (!polled || confirmed) {
+                externalStopHold[address] = true
+                Log.i(
+                    TAG,
+                    "[$address] camera-side stop — automatic starts held until no trigger wants recording " +
+                        "(polled=$polled confirmed=$confirmed)",
+                )
+            }
+        }
+
         setRecording(address, recording, RecordingOwner.NONE)
+        if (recording) cameraConfirmedRecording[address] = true
         onGenuineRecordingAction(address, recording, reason)
     }
 
@@ -1093,6 +1169,7 @@ object Insta360ConnectionManager {
         connectedFlags[address] = false
         recordingFlags[address] = false
         recordingOwner[address] = RecordingOwner.NONE
+        cameraConfirmedRecording.remove(address)
         clearBattery(address)
     }
 
@@ -1111,10 +1188,25 @@ object Insta360ConnectionManager {
     @Suppress("MissingPermission")
     private fun connectDevice(context: Context, device: BluetoothDevice) {
         val address = device.address
-        val client = Insta360BleClient(
+
+        // **Added (1.0.2)** — every callback below first checks it is still coming from
+        // the client registered for this address. Previously they acted on whatever was
+        // in [clients] at the time, so a late or duplicated callback from a client that
+        // had already been replaced could tear down — or claim the state of — the
+        // connection that replaced it. `lateinit` because the listener is built before
+        // the client it belongs to; nothing can call back until connect() below.
+        lateinit var client: Insta360BleClient
+        fun isCurrent(): Boolean = clients[address] === client
+
+        client = Insta360BleClient(
             context,
             object : Insta360BleClient.Listener {
                 override fun onConnected() {
+                    if (!isCurrent()) {
+                        Log.w(TAG, "[$address] onConnected from a superseded client — closing it")
+                        client.disconnect()
+                        return
+                    }
                     Log.i(TAG, "Camera $address connected")
                     connectedFlags[address] = true
                     // Assume nothing: this used to hard-reset the flag to false, which is
@@ -1140,14 +1232,11 @@ object Insta360ConnectionManager {
                     // If a response to 0x27 arrives, that alone is the breakthrough: it
                     // means the receive path works and everything downstream (capture
                     // status, camera-side notifications) becomes reachable.
-                    clients[address]?.checkAuthorization()
-
-                    // clients[address] rather than the local `client`, which isn't
-                    // initialised yet from inside its own listener.
-                    clients[address]?.queryCaptureStatus()
+                    client.checkAuthorization()
+                    client.queryCaptureStatus()
                     // Once up front too: waiting a full battery-poll interval would leave
                     // the fields showing --% for the first minute after every connect.
-                    clients[address]?.queryBatteryStatus()
+                    client.queryBatteryStatus()
                     ensureStatusPollRunning()
 
                     // If nothing at all has come back by now, say so plainly rather than
@@ -1166,6 +1255,13 @@ object Insta360ConnectionManager {
                 }
 
                 override fun onDisconnected() {
+                    if (!isCurrent()) {
+                        // Already replaced. Close our own GATT and leave the state and
+                        // retry schedule — which belong to the replacement — alone.
+                        Log.i(TAG, "[$address] disconnect from a superseded client — ignoring")
+                        client.disconnect()
+                        return
+                    }
                     Log.i(TAG, "Camera $address disconnected")
                     connectedFlags[address] = false
                     clearBattery(address)
@@ -1189,7 +1285,8 @@ object Insta360ConnectionManager {
                     // disconnect-reconnect cycle burned one permanently, so enough
                     // reconnects in a ride would eventually stop BLE working at all until
                     // the process restarted.
-                    clients.remove(address)?.disconnect()
+                    clients.remove(address, client)
+                    client.disconnect()
                     retryLater(address)
                 }
 
@@ -1199,6 +1296,7 @@ object Insta360ConnectionManager {
                     sequence: Int,
                     payload: ByteArray,
                 ) {
+                    if (!isCurrent()) return
                     anyFrameReceived = true
                     Log.i(
                         TAG,
@@ -1229,6 +1327,7 @@ object Insta360ConnectionManager {
                 }
 
                 override fun onNotification(notificationCode: Int, payload: ByteArray) {
+                    if (!isCurrent()) return
                     anyFrameReceived = true
                     handleCameraNotification(address, notificationCode, payload)
                 }
@@ -1244,5 +1343,24 @@ object Insta360ConnectionManager {
         // impossible at the one place clients are created.
         clients.put(address, client)?.disconnect()
         client.connect(device)
+
+        // **Added (1.0.2)** — handshake watchdog. A connection attempt that stalls part
+        // way (no MTU reply, a subscription that never completes, a connect that never
+        // calls back) used to leave this client registered but never connected, and
+        // [connectToSaved] skips any address already in [clients] — so nothing retried
+        // it until the app was restarted. If this same client still isn't connected when
+        // the timer fires, it is torn down and a fresh attempt scheduled.
+        handler.postDelayed({
+            if (isCurrent() && !isConnected(address)) {
+                Log.w(
+                    TAG,
+                    "[$address] connection not established within ${CONNECT_HANDSHAKE_TIMEOUT_MS}ms — " +
+                        "tearing down and retrying",
+                )
+                clients.remove(address, client)
+                client.disconnect()
+                retryLater(address)
+            }
+        }, CONNECT_HANDSHAKE_TIMEOUT_MS)
     }
 }

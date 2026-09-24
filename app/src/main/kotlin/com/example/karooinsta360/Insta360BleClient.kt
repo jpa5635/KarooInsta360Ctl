@@ -4,6 +4,7 @@ import android.bluetooth.*
 import android.content.Context
 import android.util.Log
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
@@ -180,6 +181,14 @@ class Insta360BleClient(
     private val pendingWrites = ArrayDeque<ByteArray>()
     private var writeInFlight = false
 
+    /**
+     * **Added (1.0.2)** — whether [Listener.onDisconnected] has already fired for this
+     * client. Every way a connection can end now funnels into [reportDisconnected], and
+     * some of them can overlap (a failed handshake step followed by the stack's own
+     * STATE_DISCONNECTED), so this makes sure the manager hears about it exactly once.
+     */
+    private val disconnectReported = AtomicBoolean(false)
+
     fun connect(device: BluetoothDevice) {
         Log.i(TAG, "connect(): device=${device.address} sdk=${android.os.Build.VERSION.SDK_INT}")
         deviceAddress = device.address
@@ -198,31 +207,51 @@ class Insta360BleClient(
 
     private val gattCallback = object : BluetoothGattCallback() {
         override fun onConnectionStateChange(g: BluetoothGatt, status: Int, newState: Int) {
+            Log.i(TAG, "onConnectionStateChange: status=$status newState=$newState")
+
+            // **Fixed (1.0.2)** — `status` used to be ignored entirely, so a
+            // STATE_CONNECTED arriving with a failure status (133 and friends, common on a
+            // reconnect straight after the camera changes state) was treated as a good
+            // link and service discovery was run on it. That discovery then never
+            // completed, the connection never announced itself, and — because the client
+            // was still registered — the manager never retried. The camera was left with
+            // a half-open link it wouldn't release either, which is why only restarting
+            // both devices cleared it.
+            if (status != BluetoothGatt.GATT_SUCCESS) {
+                failConnection("connection state change failed: status=$status newState=$newState")
+                return
+            }
             when (newState) {
                 BluetoothProfile.STATE_CONNECTED -> {
                     Log.i(TAG, "Connected, discovering services")
-                    g.discoverServices()
+                    if (!g.discoverServices()) {
+                        failConnection("discoverServices() refused")
+                    }
                 }
                 BluetoothProfile.STATE_DISCONNECTED -> {
                     Log.i(TAG, "Disconnected")
-                    listener.onDisconnected()
+                    reportDisconnected()
                 }
             }
         }
 
         override fun onServicesDiscovered(g: BluetoothGatt, status: Int) {
+            // **Fixed (1.0.2)** — each of these failures used to call onError (which only
+            // logs) and return, leaving a GATT link up that would never become a usable
+            // connection and never be retried. They now end the connection, so the
+            // manager closes the GATT and schedules a fresh attempt.
             if (status != BluetoothGatt.GATT_SUCCESS) {
-                listener.onError("Service discovery failed: $status")
+                failConnection("service discovery failed: $status")
                 return
             }
             val service = g.getService(SERVICE_BE80)
             if (service == null) {
-                listener.onError("BE80 service not found on device")
+                failConnection("BE80 service not found on device")
                 return
             }
             writeChar = service.getCharacteristic(CHAR_BE81_WRITE)
             if (writeChar == null) {
-                listener.onError("BE81 write characteristic not found")
+                failConnection("BE81 write characteristic not found")
                 return
             }
             Log.i(TAG, "BE81 properties=0x${writeChar!!.properties.toString(16)} " +
@@ -353,6 +382,29 @@ class Insta360BleClient(
         }
     }
 
+    /**
+     * **Added (1.0.2)** — gives up on a connection that can't be completed.
+     *
+     * Reports the disconnect directly rather than calling `g.disconnect()` and waiting
+     * for STATE_DISCONNECTED: on a link that has already misbehaved, that callback is
+     * exactly the kind of thing that may never arrive. The manager's response is to
+     * [disconnect] this client — which also closes the GATT — and retry.
+     */
+    private fun failConnection(reason: String) {
+        Log.w(TAG, "Connection failed ($reason) — giving up on this attempt")
+        listener.onError(reason)
+        reportDisconnected()
+    }
+
+    private fun reportDisconnected() {
+        if (!disconnectReported.compareAndSet(false, true)) return
+        synchronized(pendingWrites) {
+            pendingWrites.clear()
+            writeInFlight = false
+        }
+        listener.onDisconnected()
+    }
+
     /** See [pendingSubscriptions] for why these are issued one at a time. */
     private fun subscribeNext(g: BluetoothGatt) {
         val ch = pendingSubscriptions.removeFirstOrNull() ?: run {
@@ -370,7 +422,13 @@ class Insta360BleClient(
         @Suppress("DEPRECATION")
         cccd.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
         @Suppress("DEPRECATION")
-        g.writeDescriptor(cccd)
+        if (!g.writeDescriptor(cccd)) {
+            // **Fixed (1.0.2)** — a refused write produces no onDescriptorWrite, and the
+            // next subscription is only ever issued from that callback, so this used to
+            // stall the handshake silently. Skip it and carry on with the rest.
+            Log.w(TAG, "writeDescriptor refused for ${ch.uuid} — skipping")
+            subscribeNext(g)
+        }
     }
 
     private fun announceConnected() {

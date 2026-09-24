@@ -135,6 +135,11 @@ Only a recording the triggers themselves started gets auto-stopped, and that pro
 lasts as long as the recording does. Stopping manually also briefly pauses that camera's
 triggers, so they can't immediately restart it while a trigger condition is still true.
 
+Stopping a recording on the camera itself goes further: the triggers leave that camera alone
+until whatever condition wanted it recording has ended. Stop on the camera mid-climb and it
+stays stopped for the rest of the climb, rather than being restarted a second later; the
+next time a trigger is met from scratch, it starts as normal.
+
 ### Automatic: triggers
 
 Configured per camera inside a profile. Each trigger has its own start and stop values

@@ -899,6 +899,11 @@ class Insta360Extension : KarooExtension(EXTENSION_ID, "1.0") {
                 val actual = Insta360ConnectionManager.isRecording(address)
                 val owner = Insta360ConnectionManager.recordingOwner(address)
                 val paused = Insta360ConnectionManager.isAutomationPaused(address)
+                // **Added (1.0.2)** — see Insta360ConnectionManager.externalStopHold. The
+                // hold lasts exactly as long as the trigger the rider overrode, so it is
+                // released here, on the first tick nothing wants recording.
+                if (!desired) Insta360ConnectionManager.releaseExternalStopHold(address)
+                val heldByCameraStop = Insta360ConnectionManager.isHeldByExternalStop(address)
                 val wantingLatches = buildList {
                     if (effortWantsRecording) {
                         // Name the specific metric(s) currently behind effort — "Power"/
@@ -926,6 +931,18 @@ class Insta360Extension : KarooExtension(EXTENSION_ID, "1.0") {
                             TAG,
                             "[$label] wanting=$wantingLatches (last: $lastLatchEvent) actual=$actual — " +
                                 "automation paused for this camera, no action taken",
+                        )
+                    }
+                } else if (desired && !actual && heldByCameraStop) {
+                    // The rider stopped this recording on the camera while a trigger still
+                    // wanted it. Restarting it would override them — and would send a start
+                    // to a camera still closing the file it just stopped.
+                    outcome = "start-suppressed|camera-stop-hold"
+                    if (outcome != lastCombineOutcome) {
+                        Log.i(
+                            TAG,
+                            "[$label] $wantingLatches wants recording ($lastLatchEvent) but it was stopped on " +
+                                "the camera — start IGNORED until no trigger wants recording",
                         )
                     }
                 } else if (desired && !actual && batteryFloorBlocks(settings, address, radarWantsRecording)) {
