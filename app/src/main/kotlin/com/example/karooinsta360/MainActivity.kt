@@ -24,6 +24,10 @@ import com.example.karooinsta360.camera.CameraStore
 import com.example.karooinsta360.camera.ProfileActivity
 import com.example.karooinsta360.camera.ProfileStore
 import com.example.karooinsta360.connection.Insta360ConnectionManager
+import io.hammerhead.karooext.KarooSystemService
+import io.hammerhead.karooext.models.RequestBluetooth
+import io.hammerhead.karooext.models.ReleaseBluetooth
+import java.util.UUID
 
 /**
  * Camera list: shows every saved camera (name + address + live connected/recording
@@ -44,6 +48,9 @@ import com.example.karooinsta360.connection.Insta360ConnectionManager
  * Sideload this the same way you'd sideload any Karoo extension APK.
  */
 class MainActivity : AppCompatActivity() {
+
+    private val karooSystem by lazy { KarooSystemService(this) }
+    private val bluetoothResourceId = "insta360cam-setup-${UUID.randomUUID()}"
 
     private lateinit var noCamerasText: TextView
     private lateinit var cameraListContainer: LinearLayout
@@ -145,6 +152,10 @@ class MainActivity : AppCompatActivity() {
 
         Insta360ConnectionManager.ensureStarted(this)
         Insta360ConnectionManager.addListener(connectionListener)
+        // Also power the radio during initial setup, before any camera is saved.
+        karooSystem.connect { connected ->
+            if (connected) karooSystem.dispatch(RequestBluetooth(bluetoothResourceId))
+        }
     }
 
     override fun onResume() {
@@ -165,6 +176,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        karooSystem.dispatch(ReleaseBluetooth(bluetoothResourceId))
+        karooSystem.disconnect()
         Insta360ConnectionManager.removeListener(connectionListener)
         super.onDestroy()
         // Deliberately not touching any camera's BLE connection here — see
