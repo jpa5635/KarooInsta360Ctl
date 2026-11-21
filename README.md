@@ -45,6 +45,24 @@ committed keystore — so saved cameras and profiles survive.
 
 ## Cameras
 
+### Bluetooth radio management (1.0.3-btfix)
+
+The extension requests the Karoo Bluetooth radio while saved cameras are configured.
+The setup screen also requests Bluetooth so the first camera can be discovered.
+Requests are released when the last saved camera is removed or the corresponding
+service or setup screen is destroyed, and renewed when the Karoo system service reconnects.
+
+On Karoo 3, the sensor service can switch Bluetooth off after leaving the native
+sensor search screen. Previously this disconnected the camera and caused manual
+Start commands to be ignored. The extension now uses `RequestBluetooth` and
+`ReleaseBluetooth` from karoo-ext to manage the radio.
+
+Device testing on Karoo 3 (Android API 32) with Insta360 X5 confirmed camera status
+and battery responses, start/stop recording with file-save confirmation, and starting
+recording from the observed standby state while BLE remained connected. Installing
+the signed APK over 1.0.2 retained the saved camera. Full power-off wakeup still
+requires a separate test.
+
 Switch the camera on with Bluetooth enabled — no pairing mode, and no pairing with the
 Karoo itself, since the extension connects straight over BLE and authorises with the
 camera's own handshake rather than through Android's pairing. Then tap **Scan for

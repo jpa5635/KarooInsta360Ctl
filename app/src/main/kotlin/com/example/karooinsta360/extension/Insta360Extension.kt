@@ -13,6 +13,8 @@ import io.hammerhead.karooext.extension.KarooExtension
 import io.hammerhead.karooext.models.ActiveRideProfile
 import io.hammerhead.karooext.models.DataType
 import io.hammerhead.karooext.models.InRideAlert
+import io.hammerhead.karooext.models.RequestBluetooth
+import io.hammerhead.karooext.models.ReleaseBluetooth
 import io.hammerhead.karooext.models.StreamState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -58,6 +60,7 @@ class Insta360Extension : KarooExtension(EXTENSION_ID, "1.0") {
     companion object {
         private const val TAG = "Insta360Extension"
         const val EXTENSION_ID = "insta360cam"
+        private const val BLUETOOTH_RESOURCE_ID = "insta360cam-cameras"
         private const val CHECK_INTERVAL_MS = 1_000L
 
         // Matches the actionId="toggle_recording" BonusAction declared in
@@ -181,6 +184,7 @@ class Insta360Extension : KarooExtension(EXTENSION_ID, "1.0") {
     private val cameraStoreListener =
         SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
             Log.i(TAG, "Camera list changed, resyncing monitors")
+            updateBluetoothRequest()
             resyncCameraMonitors()
         }
 
@@ -207,6 +211,7 @@ class Insta360Extension : KarooExtension(EXTENSION_ID, "1.0") {
         karooSystem.connect { connected ->
             Log.i(TAG, "KarooSystem connected=$connected")
             if (connected) {
+                updateBluetoothRequest()
                 startMetricCollectors()
                 resyncCameraMonitors()
                 observeActiveRideProfile()
@@ -228,11 +233,23 @@ class Insta360Extension : KarooExtension(EXTENSION_ID, "1.0") {
         activeRideProfileJob?.cancel(); activeRideProfileJob = null
         cameraMonitors.values.forEach { it.cancel() }
         cameraMonitors.clear()
+        karooSystem.dispatch(ReleaseBluetooth(BLUETOOTH_RESOURCE_ID))
         karooSystem.disconnect()
         super.onDestroy()
         // Deliberately NOT tearing down Insta360ConnectionManager's BLE connections here
         // — they're shared with the app's UI, and the Karoo may just be temporarily
         // unbinding this service rather than the whole app being killed.
+    }
+
+    private fun updateBluetoothRequest() {
+        // Karoo powers down Bluetooth unless a sensor or extension claims the radio.
+        val effect = if (CameraStore.getCameras(this).isNotEmpty()) {
+            RequestBluetooth(BLUETOOTH_RESOURCE_ID)
+        } else {
+            ReleaseBluetooth(BLUETOOTH_RESOURCE_ID)
+        }
+        Log.i(TAG, "Bluetooth resource update: $effect")
+        karooSystem.dispatch(effect)
     }
 
     private fun publishAggregateRecordingState() {
